@@ -6,10 +6,13 @@ bucket is. Everything downstream of it takes `Play` and `PlaySource`, so
 swapping the storage layer -- or handing the model plays out of a fixture, a
 CSV, or a live feed -- is a new adapter here and nothing else.
 
-Two sources live here:
+Three sources live here:
 
 - `TablePlaySource`, over a table already in memory. What tests and notebooks
   use, and what you get after reading a parquet file yourself.
+- `DatasetPlaySource`, over a local copy of the processed tree -- what an
+  `aws s3 sync` of the `processed/plays` prefix gives you. Training off a
+  local copy means a fit can be re-run offline and reproduced exactly.
 - `StorePlaySource`, over endgame's `ProcessedPlaysStore`. It takes the store
   as a constructor argument typed against `ProcessedPlaysStoreLike` below, so
   this package doesn't depend on `endgame_aws` -- import the store where you
@@ -19,6 +22,7 @@ Two sources live here:
 from datetime import datetime
 from functools import reduce
 from operator import and_
+from pathlib import Path
 from typing import Any, Iterable, NamedTuple, Protocol, Sequence
 
 import pyarrow as pa
@@ -142,6 +146,59 @@ def _matches(**equals: Any) -> ds.Expression:
     return reduce(and_, terms)
 
 
+class DatasetPlaySource:
+    """
+    A `PlaySource` over a local copy of endgame's processed tree.
+
+        processed/plays/league={league}/season={season}/week={week}/data.parquet
+
+    Point it at the `processed/plays` directory. Read as a plain parquet
+    dataset with no partitioning spec, deliberately: endgame repeats
+    `league`, `season` and `week` inside every file as well as in the path,
+    so the columns are already there -- and declaring hive partitioning on
+    top of that gives two definitions of the same column to disagree about.
+    The filters below therefore read the real columns, and are pushed into
+    the parquet reader the same way the store's are.
+
+    A missing directory is an empty source rather than an error, so pointing
+    a training run at a season nobody has synced yet says "no games" instead
+    of a stack trace.
+    """
+
+    def __init__(self, root: str | Path) -> None:
+        self._root = Path(root)
+
+    def _dataset(self) -> ds.Dataset | None:
+        if not self._root.exists():
+            return None
+        return ds.dataset(self._root, format="parquet")
+
+    def _read(self, expression: ds.Expression) -> list[Play]:
+        dataset = self._dataset()
+        if dataset is None:
+            return []
+        return sort_plays(table_to_plays(dataset.to_table(filter=expression)))
+
+    async def load_game(
+        self, league: str, season: int, week: int, game_id: str
+    ) -> Sequence[Play]:
+        return self._read(
+            _matches(league=league, season=season, week=week, game_id=game_id)
+        )
+
+    async def load_week(self, league: str, season: int, week: int) -> Sequence[Play]:
+        return self._read(_matches(league=league, season=season, week=week))
+
+    async def load_weeks(
+        self, league: str, season: int, weeks: Iterable[int]
+    ) -> Sequence[Play]:
+        wanted = list(weeks)
+        if not wanted:
+            return []
+        expression = _matches(league=league, season=season)
+        return self._read(expression & ds.field("week").isin(wanted))
+
+
 class ProcessedPlaysStoreLike(Protocol):
     """
     The part of endgame's `ProcessedPlaysStore` that `StorePlaySource` uses.
@@ -175,8 +232,7 @@ class StorePlaySource:
 
     Wire it up with the store from `endgame_aws.pbp_parquet`:
 
-        async with get_processed_plays_store() as store:
-            source = StorePlaySource(store)
+        source = StorePlaySource(get_processed_plays_store())
 
     Each call is one read of one week's object -- the store pushes the
     `game_id` filter into the parquet reader, so `load_game` moves a fraction

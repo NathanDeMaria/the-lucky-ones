@@ -21,6 +21,8 @@ The pipeline, in the order the modules run:
 | `training` | games as a labelled matrix, split by game rather than by row |
 | `model` | `WinProbabilityModel`, and a logistic baseline |
 | `metrics` | scoring the result |
+| `curve` | a game's win probability over time, and game control |
+| `release` | the artifact a consumer reads |
 
 ### The play data
 
@@ -42,8 +44,8 @@ a local Protocol. Wire it up where the application is wired up:
 from endgame_aws.pbp_parquet import get_processed_plays_store
 from lucky_ones import StorePlaySource
 
-async with get_processed_plays_store() as store:
-    plays = await StorePlaySource(store).load_weeks("nfl", 2025, range(1, 19))
+source = StorePlaySource(get_processed_plays_store())
+plays = await source.load_weeks("nfl", 2025, range(1, 19))
 ```
 
 Tests, notebooks, and anything with a table already in hand use
@@ -62,37 +64,104 @@ each caller:
   carries its touchdown, so training on it leaks the result into the
   features. `iter_states` takes the score from the previous play.
 
-## Fitting
+## Training a model
 
-```python
-from lucky_ones import (
-    LogisticWinProbability,
-    build_training_set,
-    group_by_game,
-    iter_states,
-    split_games,
-)
-
-games = group_by_game(plays)
-train, holdout = split_games(games)  # by game, never by row
-training = build_training_set(train)
-model = LogisticWinProbability.fit(training.states, training.home_won)
-model.save("nfl.json")
+```sh
+make plays                                        # aws s3 sync, once
+make train ARGS="--league nfl --seasons 2022-2025 --root ./plays"
 ```
 
-The baseline is logistic regression on eight features, and it is a baseline:
-readable coefficients, a fit that takes a second, and the thing anything more
-elaborate has to beat before it earns its complexity. Scoring a game needs
-neither the store nor scikit-learn — a saved fit is a JSON file of
-coefficients, and `predict` is one matrix multiply:
+That writes `models/nfl.json` — a `WinProbabilityRelease`: the coefficients,
+what they were fit on, and how they scored on held-out games.
 
-```python
-model = LogisticWinProbability.load("nfl.json")
-probabilities = model.predict(list(iter_states(game)))
+```
+nfl 2025: 20328 plays
+Fitting on 134 games (16080 snaps), holding out 34 games
+  score_margin           +0.0736
+  margin_per_root_time   +5.5357
+  ...
+Holdout: brier 0.1344, log loss 0.4120 over 34 games
+Wrote models/nfl.json
 ```
 
-That split is what the `fit` dependency group in `pyproject.toml` is for:
-scikit-learn is imported inside `fit`, so a serving install never pays for it.
+Two ways to get the plays. `--root` reads a local copy of endgame's
+processed tree, which is reproducible and needs no credentials; without it
+the script reads the bucket through `endgame_aws`, which needs `AWS_PROFILE`
+and `~/.aws-batch/config.json`. Everything downstream sees the same
+`PlaySource` either way — the script is the only place that decides.
+
+Then eyeball a game:
+
+```sh
+make curve ARGS="401671789 --week 3"
+```
+
+```
+{"game_id": "401671789", "home_team_id": "...", "away_team_id": "...",
+ "game_control": {"home": 0.804, "away": 0.196, "seconds": 3600},
+ "points": [{"period": 1, "clock_seconds": 900, "home_score": 0,
+             "home_win_probability": 0.464}, ...]}
+```
+
+No AWS and no data at all? `synthetic.py` writes a football-shaped tree in
+the same layout, which is what the tests train on:
+
+```sh
+uv run python synthetic.py --root ./plays --weeks 12 --games-per-week 14
+```
+
+It is a fixture, not a simulator — never fit a model you mean to use on it.
+
+## Reading a release from another service
+
+A release is JSON, and rehydrating it needs neither the bucket nor
+scikit-learn — which is what lets invisible-string draw a curve from a fit it
+didn't make. Same arrangement as cassandra's `ModelRelease`, and for the same
+reason: depend on this package by rev, read the artifact, never run the
+fitting stack.
+
+```python
+from lucky_ones import WinProbabilityRelease, game_control, win_probability_curve
+
+release = WinProbabilityRelease.model_validate_json(raw)
+points = win_probability_curve(release.to_model(), game)  # the graph
+control = game_control(points)  # the number under it
+```
+
+`points` is one `CurvePoint` per snap, carrying period, clock, both scores
+and the home team's win probability — everything an axis label or a tooltip
+needs, so the consumer never goes back to the plays.
+
+Publish somewhere the consumer can reach:
+
+```sh
+make train ARGS="--league nfl --seasons 2022-2025 --out releases/nfl/latest.json"
+aws s3 cp releases/nfl/latest.json s3://BUCKET/win_probability/nfl/latest.json
+```
+
+A sibling prefix to invisible-string's `models/` rather than a key inside it:
+its release reader validates everything under that prefix against cassandra's
+`ModelRelease`, and a win probability release is a different artifact, not a
+malformed one.
+
+## Game control
+
+`game_control` is the average win probability over a game, weighted by how
+long each one was on the board.
+
+An unweighted mean over snaps counts a two-minute drill's fifteen plays the
+same as a quarter of grinding, so a team that trailed all game and won on the
+last drive comes out looking like it was in control throughout. Weighting by
+elapsed clock is what makes the number mean "most of the game".
+
+Read it as a share of the game controlled, not as a win probability: 0.80
+doesn't say the home team was ever 80% to win, it says that averaged over
+sixty minutes, that's where the model had them. Both sides sum to 1, and
+`seconds` says what the average covers — regulation only, since college
+overtime has no clock to weight by.
+
+The synthetic game above is the case worth having it for: 0.80 control for a
+team that led 20-17 with a minute left and lost.
 
 ## Development
 
@@ -105,6 +174,9 @@ before it runs.
 make test     # pytest
 make lint     # ruff (fix + format) and ty
 make check    # the same checks, reporting instead of fixing -- what CI runs
+make train    # fit a model, write models/{league}.json
+make curve    # one game's curve and its game control, as JSON
+make plays    # aws s3 sync the processed play-by-play down for offline fits
 ```
 
 Machine-local settings go in `.devcontainer/local.env` (gitignored;

@@ -13,6 +13,10 @@ dependencies = [
     # Feature matrices, and the dot product that `LogisticWinProbability`
     # scores with. Deliberately not scipy or sklearn -- see the `fit` group.
     "numpy>=2.4.0",
+    # The release artifact only. Same reason cassandra carries it: a consumer
+    # reading a fit gets a validated schema rather than a dict, and pydantic
+    # is already in every service that would read one.
+    "pydantic>=2.12.5",
 ]
 
 # Fitting, not scoring. A consumer that installs lucky-ones as a dependency
@@ -29,6 +33,14 @@ dependencies = [
 [dependency-groups]
 fit = [
     "scikit-learn>=1.8.0",
+    # `train.py`'s CLI.
+    "fire>=0.7.1",
+    # Where the plays live. A *training* dependency, not a package one: the
+    # library takes a `PlaySource`, and only the script that goes and gets
+    # real plays needs the thing that reads the bucket. Pinned to a rev like
+    # cassandra pins it -- unpinned, the stored play schema can move under a
+    # retrain with nothing in the diff saying so.
+    "endgame-aws @ git+https://github.com/NathanDeMaria/EndGame.git@26646aa4c3f77422a500603710f6b662fe94305e#subdirectory=py-endgame-aws",
 ]
 dev = [
     "pytest>=9.0.2",

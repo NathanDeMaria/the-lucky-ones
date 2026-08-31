@@ -50,19 +50,34 @@ class GameState(NamedTuple):
     play_number: int
 
     period: int
+
+    clock_seconds: int
+    """Left in `period`. What a chart labels a point with ("Q3 7:22")."""
+
     seconds_remaining: int
     """Left in regulation, across all four periods. 0 in overtime."""
 
     is_overtime: bool
 
-    score_margin: int
-    """Home minus away, *before* this play."""
+    home_score: int
+    """*Before* this play -- see the module docstring."""
+
+    away_score: int
 
     offense_is_home: bool
     down: int
     distance: int
     yardline: int
     """1 is the offense's own 1-yard line, 99 is the defense's."""
+
+    @property
+    def score_margin(self) -> int:
+        """
+        Home minus away, before this play. The model's strongest feature, and
+        derived rather than stored so it can't disagree with the two scores a
+        chart puts in a tooltip.
+        """
+        return self.home_score - self.away_score
 
 
 class GameOutcome(NamedTuple):
@@ -97,7 +112,7 @@ def iter_states(game: GamePlays) -> Iterator[GameState]:
     """
     home_score, away_score = 0, 0
     for play in game.plays:
-        state = _to_state(game, play, score_margin=home_score - away_score)
+        state = _to_state(game, play, home_score=home_score, away_score=away_score)
         if state is not None:
             yield state
         # After yielding, so the state above is the one before this play.
@@ -127,7 +142,9 @@ def final_outcome(game: GamePlays) -> GameOutcome | None:
     return None
 
 
-def _to_state(game: GamePlays, play: Play, score_margin: int) -> GameState | None:
+def _to_state(
+    game: GamePlays, play: Play, home_score: int, away_score: int
+) -> GameState | None:
     if (
         play.period is None
         or play.clock_seconds is None
@@ -142,9 +159,11 @@ def _to_state(game: GamePlays, play: Play, score_margin: int) -> GameState | Non
         play_id=play.play_id,
         play_number=play.play_number,
         period=play.period,
+        clock_seconds=play.clock_seconds,
         seconds_remaining=_seconds_remaining(play.period, play.clock_seconds),
         is_overtime=play.period > REGULATION_PERIODS,
-        score_margin=score_margin,
+        home_score=home_score,
+        away_score=away_score,
         offense_is_home=play.offense_team_id == game.home_team_id,
         down=play.down,
         distance=play.distance,

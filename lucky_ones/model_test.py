@@ -3,26 +3,9 @@ import json
 import numpy as np
 import pytest
 
+from .conftest import make_state as _state
 from .features import FEATURE_NAMES
 from .model import LogisticWinProbability, WinProbabilityModel, predict_one
-from .state import GameState
-
-
-def _state(**overrides) -> GameState:
-    base = GameState(
-        game_id="g1",
-        play_id="p1",
-        play_number=1,
-        period=1,
-        seconds_remaining=3600,
-        is_overtime=False,
-        score_margin=0,
-        offense_is_home=True,
-        down=1,
-        distance=10,
-        yardline=25,
-    )
-    return base._replace(**overrides)
 
 
 def _model(**overrides) -> LogisticWinProbability:

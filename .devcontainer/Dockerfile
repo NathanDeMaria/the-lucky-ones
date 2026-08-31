@@ -7,8 +7,10 @@ FROM python@sha256:48651f00145ad01e9f83d468c57cec40fac72081950f9730205b87abc6087
 # deliberately: `dev` below only ever executes uv, it never installs into it.
 #
 # Pinned. Bump it on purpose: uv is what reads uv.lock, and a resolver that
-# moves on its own moves the environment with it.
-ENV UV_VERSION=0.8.17
+# moves on its own moves the environment with it. The pin also decides which
+# interpreters uv knows about -- an old uv's newest "3.14" was a release
+# candidate whose typing internals pydantic refuses to import.
+ENV UV_VERSION=0.12.7
 RUN python3 -m venv /opt/uv \
     && /opt/uv/bin/pip install --no-cache-dir "uv==${UV_VERSION}" \
     && ln -s /opt/uv/bin/uv /usr/local/bin/uv

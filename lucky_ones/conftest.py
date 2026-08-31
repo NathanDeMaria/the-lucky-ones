@@ -13,6 +13,8 @@ from typing import Any, Sequence
 import pyarrow as pa
 import pytest
 
+from .state import GameState
+
 # The subset of endgame's PLAY_SCHEMA that `lucky_ones.arrow.PLAY_COLUMNS`
 # reads, with its types. A test table has to be typed like the real thing:
 # `down` is an int8 that is genuinely null on a kickoff, and a python dict
@@ -89,6 +91,38 @@ def make_play(**overrides: Any) -> dict[str, Any]:
 
 def make_table(rows: Sequence[dict[str, Any]]) -> pa.Table:
     return pa.Table.from_pylist(list(rows), schema=TEST_SCHEMA)
+
+
+_BASE_STATE = GameState(
+    game_id="g1",
+    play_id="p1",
+    play_number=1,
+    period=1,
+    clock_seconds=900,
+    seconds_remaining=3600,
+    is_overtime=False,
+    home_score=0,
+    away_score=0,
+    offense_is_home=True,
+    down=1,
+    distance=10,
+    yardline=25,
+)
+
+
+def make_state(**overrides: Any) -> GameState:
+    """
+    A `GameState` with the fields a test doesn't care about filled in.
+
+    `score_margin=` is accepted even though it isn't a field: it's the
+    property most of these tests are actually about, and spelling it as a
+    pair of scores at every call site buries what the case is testing.
+    """
+    margin = overrides.pop("score_margin", None)
+    if margin is not None:
+        overrides["home_score"] = max(margin, 0)
+        overrides["away_score"] = max(-margin, 0)
+    return _BASE_STATE._replace(**overrides)
 
 
 @pytest.fixture(name="make_play")

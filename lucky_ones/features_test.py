@@ -1,25 +1,8 @@
 import numpy as np
 
+from .conftest import make_state as _state
 from .features import FEATURE_NAMES, feature_matrix, to_features
 from .state import GameState
-
-_BASE = GameState(
-    game_id="g1",
-    play_id="p1",
-    play_number=1,
-    period=1,
-    seconds_remaining=3600,
-    is_overtime=False,
-    score_margin=0,
-    offense_is_home=True,
-    down=1,
-    distance=10,
-    yardline=25,
-)
-
-
-def _state(**overrides) -> GameState:
-    return _BASE._replace(**overrides)
 
 
 def _feature(state: GameState, name: str) -> float:

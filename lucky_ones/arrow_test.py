@@ -1,7 +1,13 @@
 import pyarrow as pa
 import pytest
 
-from .arrow import ArrowPlay, StorePlaySource, TablePlaySource, table_to_plays
+from .arrow import (
+    ArrowPlay,
+    DatasetPlaySource,
+    StorePlaySource,
+    TablePlaySource,
+    table_to_plays,
+)
 from .conftest import make_play, make_table
 from .plays import Play, PlaySource
 
@@ -143,6 +149,49 @@ async def test_store_source_treats_an_unprocessed_week_as_empty():
     assert store.calls[0][0] == "load_week_or_empty"
 
 
-def test_both_sources_are_play_sources():
+def _write_tree(root, rows) -> None:
+    """A local copy of endgame's processed layout: one parquet per
+    league-week, under the hive-style directories it writes."""
+    import pyarrow.parquet as pq
+
+    by_week: dict[tuple[str, int, int], list] = {}
+    for row in rows:
+        by_week.setdefault((row["league"], row["season"], row["week"]), []).append(row)
+    for (league, season, week), week_rows in by_week.items():
+        directory = root / f"league={league}" / f"season={season}" / f"week={week}"
+        directory.mkdir(parents=True, exist_ok=True)
+        pq.write_table(make_table(week_rows), directory / "data.parquet")
+
+
+async def test_dataset_source_reads_a_local_tree(tmp_path):
+    _write_tree(
+        tmp_path,
+        [
+            make_play(week=1, play_id="w1"),
+            make_play(week=2, play_id="w2", game_id="g2"),
+        ],
+    )
+    source = DatasetPlaySource(tmp_path)
+
+    assert [play.play_id for play in await source.load_week("nfl", 2025, 2)] == ["w2"]
+    assert [play.play_id for play in await source.load_game("nfl", 2025, 1, "g1")] == [
+        "w1"
+    ]
+    assert len(await source.load_weeks("nfl", 2025, [1, 2])) == 2
+
+
+async def test_dataset_source_on_a_directory_nobody_has_synced(tmp_path):
+    """
+    Pointing a training run at a season that isn't downloaded should say "no
+    games", not raise from inside pyarrow.
+    """
+    source = DatasetPlaySource(tmp_path / "not-there")
+
+    assert await source.load_week("nfl", 2025, 1) == []
+    assert await source.load_weeks("nfl", 2025, [1, 2]) == []
+
+
+def test_every_source_is_a_play_source():
     _accepts_source(TablePlaySource(make_table([])))
     _accepts_source(StorePlaySource(_FakeStore(make_table([]))))
+    _accepts_source(DatasetPlaySource("plays"))
