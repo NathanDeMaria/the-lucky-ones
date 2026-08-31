@@ -1,0 +1,64 @@
+{
+  "name": "the-lucky-ones",
+  "build": {
+    "context": "..",
+    "dockerfile": "./Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "editor.rulers": [
+          88
+        ],
+        "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+        "editor.formatOnSave": true,
+        "python.testing.pytestArgs": [
+          "."
+        ],
+        "python.testing.unittestEnabled": false,
+        "python.testing.pytestEnabled": true,
+        "autoDocstring.docstringFormat": "numpy-notypes",
+        "[python]": {
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit",
+            "source.fixAll": "explicit"
+          },
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        },
+        "search.useIgnoreFiles": true
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "njpwerner.autodocstring",
+        "charliermarsh.ruff",
+        "anthropic.claude-code"
+      ]
+    }
+  },
+  "remoteUser": "dev",
+  "shutdownAction": "none",
+  "remoteEnv": {
+    "GH_TOKEN": "${localEnv:GH_TOKEN}",
+    // Machine-local settings -- AWS_PROFILE, mainly -- read by the
+    // .local-env.sh that the Dockerfile hooks into every bash. Not a mount:
+    // the file lives in the workspace, which is already bind-mounted, so this
+    // only has to say where it landed.
+    "DEVCONTAINER_ENV_FILE": "${containerWorkspaceFolder}/.devcontainer/local.env"
+  },
+  // `uv sync` here rather than in the Dockerfile: this runs in the
+  // bind-mounted workspace, so the .venv it builds is the one the editor's
+  // interpreter path above points at and the one `uv run` finds.
+  "postCreateCommand": "sudo chown -R $(id -u):$(id -g) /commandhistory && uv sync",
+  "postStartCommand": "nohup flock -n /home/dev/.claude-rc.lock claude rc --name the-lucky-ones >>/tmp/claude-rc.log 2>&1 &",
+  // ~/.aws goes in as one mount rather than a file per credential source:
+  // there's no ECR or Batch config to keep out of it here, and the SSO flow
+  // writes into ~/.aws/sso and ~/.aws/cache, both of which have to persist to
+  // the host for a login to outlive the container.
+  "mounts": [
+    "source=bashhistory-volume,target=/commandhistory,type=volume",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws,target=/home/dev/.aws,type=bind,consistency=cached",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.claude,target=/home/dev/.claude,type=bind,consistency=cached"
+  ]
+}

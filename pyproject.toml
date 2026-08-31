@@ -1,0 +1,69 @@
+[project]
+name = "lucky-ones"
+version = "0.1.0"
+description = "In-game win probability for football, from play-by-play"
+requires-python = ">=3.14"
+authors = []
+dependencies = [
+    # The play data arrives as an Arrow table -- that's what endgame's
+    # processed layer writes and what `lucky_ones.arrow` adapts. Nothing in
+    # the model layer imports it: `lucky_ones.plays` is protocols only, so a
+    # caller with plays from somewhere else never touches pyarrow.
+    "pyarrow>=21.0.0",
+    # Feature matrices, and the dot product that `LogisticWinProbability`
+    # scores with. Deliberately not scipy or sklearn -- see the `fit` group.
+    "numpy>=2.4.0",
+]
+
+# Fitting, not scoring. A consumer that installs lucky-ones as a dependency
+# gets the model, `predict` and the saved-coefficient round trip; it does not
+# get scikit-learn, because dependency groups (PEP 735) never make it into
+# package metadata. That is what keeps a ~100MB solver out of an image whose
+# only job is to load a JSON fit and evaluate a logistic function.
+#
+# `uv sync` installs this by default (see tool.uv.default-groups), so local
+# dev and CI are unaffected. The cost: a bare `pip install lucky-ones` can
+# rehydrate a fit but not produce one, so `LogisticWinProbability.fit`
+# imports sklearn inside the function and the ImportError lands there rather
+# than at import time.
+[dependency-groups]
+fit = [
+    "scikit-learn>=1.8.0",
+]
+dev = [
+    "pytest>=9.0.2",
+    # `PlaySource` is async, so most of the tests around it are too
+    "pytest-asyncio>=1.3.0",
+    "pylint>=4.0.4",
+    "ruff>=0.14.10",
+    "ty>=0.0.65",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lucky_ones"]
+
+[tool.uv]
+default-groups = ["dev", "fit"]
+
+[tool.pytest.ini_options]
+# `async def test_...` runs without a per-test marker, like endgame's suites
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+# "I" is import sorting, which `make lint` fixes in place. "F" is pyflakes --
+# unused imports and names, the things `ty` doesn't consider errors and a
+# reviewer shouldn't have to.
+select = ["I", "F"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lucky_ones"]
+
+[tool.pylint.messages_control]
+disable = ["missing-module-docstring", "missing-function-docstring"]

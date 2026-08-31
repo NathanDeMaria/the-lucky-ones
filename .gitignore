@@ -1,0 +1,18 @@
+__pycache__
+.venv
+*.csv
+# Fits are saved as json (see `LogisticWinProbability.save`), and a fit is
+# output -- rerunnable from the plays it came from. A fit worth keeping goes
+# somewhere versioned deliberately, not in here by accident.
+*.json
+# A devcontainer config is hand-written input, not scratch output
+!**/.devcontainer/*.json
+.env
+
+# Machine-local devcontainer settings -- the AWS_PROFILE to use, mainly. The
+# point of the file is to keep that out of here; local.env.example is the
+# tracked copy that documents it. (The `.env` rule above doesn't cover this
+# one: an unanchored pattern matches a whole path component, not a suffix.)
+.devcontainer/local.env
+
+logs/
