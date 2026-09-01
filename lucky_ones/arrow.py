@@ -38,8 +38,9 @@ except ModuleNotFoundError as missing:  # pragma: no cover - depends on the inst
         "`lucky_ones.arrow` reads endgame's stored play-by-play, which needs "
         "pyarrow. That isn't an install dependency of lucky-ones -- scoring a "
         "game never touches Arrow, and a serving image shouldn't carry it. "
-        "Install the training extra: `pip install 'lucky-ones[train]'`, or "
-        "`uv sync` in this repo."
+        "Install the data extra: `pip install 'lucky-ones[data]'`, or "
+        "`uv sync` in this repo. That is the one that adds Arrow and nothing "
+        "else -- reading stored plays doesn't need a solver."
     ) from missing
 
 from .plays import Play
