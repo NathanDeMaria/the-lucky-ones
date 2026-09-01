@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from lucky_ones import WinProbabilityRelease
+from lucky_ones.release import WinProbabilityRelease
 from synthetic import write_tree
 from train import _parse_seasons, _parse_weeks, curve, train
 

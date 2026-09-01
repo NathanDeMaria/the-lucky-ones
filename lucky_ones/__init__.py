@@ -1,6 +1,26 @@
 """
 In-game win probability for football, from play-by-play.
 
+The whole top-level API is `MODELS` and what it takes:
+
+    from lucky_ones import MODELS, group_by_game
+
+    (game,) = group_by_game(plays)
+    points = MODELS.NCAAFB.curve(game)          # the graph
+    control = MODELS.NCAAFB.game_control(game)  # the number under it
+
+`MODELS.NFL` and `MODELS.NCAAFB` are fitted releases that ship inside the
+wheel, so scoring a game needs no bucket, no credentials and no fitting
+stack -- pin this package by rev and you have pinned the model with it. Each
+carries how it scored and what it was fit on (`.metrics`, `.trained_on`), and
+the fit itself is on `.model`. See `lucky_ones.bundled`.
+
+Five names, because a consumer wanting a win probability curve needs exactly
+five: the models, the one function that turns plays into games, and the three
+types on the boundary. Everything else -- the protocols, the free functions
+the methods above wrap, the feature list, the fitting stack -- is a module
+import away, and the table below says which module.
+
 The pipeline, in the order the modules run:
 
     plays     what a play is, and where plays come from -- protocols only
@@ -12,88 +32,42 @@ The pipeline, in the order the modules run:
     model     `WinProbabilityModel`, and a logistic baseline
     metrics   scoring the result
     curve     a game's win probability over time, and game control
-    release   the artifact a consumer reads
+    release   the artifact a fit is stored as
+    bundled   the fits that ship with the package, and `MODELS`
 
-Fitting, end to end:
+Installing it comes in two sizes, because those modules do two jobs. A bare
+`pip install lucky-ones` is the inference half -- numpy and pydantic -- which
+is everything the five names above reach. Producing a fit, or reading
+endgame's stored parquet, needs `lucky-ones[train]`: pyarrow, the solver, and
+the store client, about 250MB that a consumer drawing a graph has no use for.
+That half is not exported here, and importing it is what asks for the extra:
 
     from endgame_aws.pbp_parquet import get_processed_plays_store
-    from lucky_ones import (
-        LogisticWinProbability, StorePlaySource, build_training_set,
-        group_by_game,
-    )
+
+    from lucky_ones import group_by_game
+    from lucky_ones.arrow import StorePlaySource
+    from lucky_ones.model import LogisticWinProbability
+    from lucky_ones.training import build_training_set
 
     source = StorePlaySource(get_processed_plays_store())
     plays = await source.load_weeks("nfl", 2025, range(1, 19))
     training = build_training_set(group_by_game(plays))
     model = LogisticWinProbability.fit(training.states, training.home_won)
-    model.save("nfl.json")
 
-and scoring a game needs neither the store nor scikit-learn -- a saved
-release, some plays, and
-
-    release = WinProbabilityRelease.model_validate_json(Path("nfl.json").read_text())
-    points = win_probability_curve(release.to_model(), game)
-    control = game_control(points)
-
-which is the pair a chart draws and the number underneath it.
+which is `train.py`'s job, not a consumer's. The split is enforced by the
+import graph: nothing reachable from this module imports pyarrow or
+scikit-learn, and `init_test` re-imports the package with pyarrow blocked to
+keep that true.
 """
 
-from .arrow import (
-    ArrowPlay,
-    DatasetPlaySource,
-    ProcessedPlaysStoreLike,
-    StorePlaySource,
-    TablePlaySource,
-    table_to_plays,
-)
-from .curve import (
-    CurvePoint,
-    GameControl,
-    curve_from_states,
-    game_control,
-    win_probability_curve,
-)
-from .features import FEATURE_NAMES, feature_matrix, to_features
-from .game import GamePlays, group_by_game, infer_home_team_id
-from .metrics import brier_score, log_loss
-from .model import LogisticWinProbability, WinProbabilityModel, predict_one
-from .plays import Play, PlaySource
-from .release import WinProbabilityRelease, release_json_schema
-from .state import GameOutcome, GameState, final_outcome, iter_states
-from .training import TrainingSet, build_training_set, split_games
+from .bundled import MODELS
+from .curve import CurvePoint, GameControl
+from .game import GamePlays, group_by_game
 
 __all__ = [
-    "ArrowPlay",
+    "MODELS",
     "CurvePoint",
-    "DatasetPlaySource",
-    "FEATURE_NAMES",
     "GameControl",
-    "GameOutcome",
     "GamePlays",
-    "GameState",
-    "LogisticWinProbability",
-    "Play",
-    "PlaySource",
-    "ProcessedPlaysStoreLike",
-    "StorePlaySource",
-    "TablePlaySource",
-    "TrainingSet",
-    "WinProbabilityModel",
-    "WinProbabilityRelease",
-    "brier_score",
-    "build_training_set",
-    "curve_from_states",
-    "feature_matrix",
-    "final_outcome",
-    "game_control",
     "group_by_game",
-    "infer_home_team_id",
-    "iter_states",
-    "log_loss",
-    "predict_one",
-    "release_json_schema",
-    "split_games",
-    "table_to_plays",
-    "to_features",
-    "win_probability_curve",
 ]

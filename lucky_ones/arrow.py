@@ -25,8 +25,22 @@ from operator import and_
 from pathlib import Path
 from typing import Any, Iterable, NamedTuple, Protocol, Sequence
 
-import pyarrow as pa
-import pyarrow.dataset as ds
+try:
+    import pyarrow as pa
+    import pyarrow.dataset as ds
+except ModuleNotFoundError as missing:  # pragma: no cover - depends on the install
+    # The one import in the package that can fail on a correct install, so it
+    # says which install that is. `lucky_ones` itself never reaches here --
+    # importing the package doesn't import this module, which is what keeps
+    # 152MB of Arrow out of an image whose only job is to score a game. The
+    # failure belongs on the line that asked for stored plays.
+    raise ModuleNotFoundError(
+        "`lucky_ones.arrow` reads endgame's stored play-by-play, which needs "
+        "pyarrow. That isn't an install dependency of lucky-ones -- scoring a "
+        "game never touches Arrow, and a serving image shouldn't carry it. "
+        "Install the training extra: `pip install 'lucky-ones[train]'`, or "
+        "`uv sync` in this repo."
+    ) from missing
 
 from .plays import Play
 

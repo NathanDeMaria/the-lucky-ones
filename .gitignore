@@ -5,6 +5,11 @@ __pycache__
 # output -- rerunnable from the plays it came from. A fit worth keeping goes
 # somewhere versioned deliberately, not in here by accident.
 *.json
+# And `lucky_ones/releases` is that deliberate place: the fits `MODELS` serves,
+# which ship inside the wheel. Tracked on purpose -- pinning the package by rev
+# has to pin the model too. hatchling reads this file when it decides what goes
+# in the build, so an ignored fit would also be a fit missing from the install.
+!lucky_ones/releases/*.json
 # A devcontainer config is hand-written input, not scratch output
 !**/.devcontainer/*.json
 .env
@@ -16,3 +21,4 @@ __pycache__
 .devcontainer/local.env
 
 logs/
+plays/

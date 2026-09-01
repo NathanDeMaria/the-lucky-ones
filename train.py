@@ -18,8 +18,10 @@ point of the protocol: this script is the only place that decides where
 plays come from.
 
 The output is a `WinProbabilityRelease` -- coefficients, what they were fit
-on, and how they scored on held-out games -- which is what a consumer reads.
-See README.md for the invisible-string end of that.
+on, and how they scored on held-out games -- written into the package at
+`lucky_ones/releases/{league}.json`, which is the file `MODELS.NFL` serves.
+Commit it: the fit ships with the code, so a retrain is a diff of eight
+coefficients and a holdout score. See README.md for the consumer end.
 """
 
 import asyncio
@@ -33,23 +35,21 @@ from typing import Iterable, Sequence
 import fire
 import numpy as np
 
-from lucky_ones import (
-    DatasetPlaySource,
-    GamePlays,
-    LogisticWinProbability,
-    Play,
-    PlaySource,
-    WinProbabilityRelease,
-    brier_score,
-    build_training_set,
-    curve_from_states,
-    game_control,
-    group_by_game,
-    iter_states,
-    log_loss,
-    split_games,
-)
-from lucky_ones.release import Metrics, TrainedOn
+from lucky_ones import MODELS, GamePlays, group_by_game
+
+# `lucky_ones` exports the five names a consumer needs to score a game. This
+# script fits one, which is the other half of the package, so it reaches a
+# layer down for nearly everything -- exactly the split the top-level module
+# is drawing.
+from lucky_ones.arrow import DatasetPlaySource, StorePlaySource
+from lucky_ones.bundled import RELEASE_DIR
+from lucky_ones.curve import curve_from_states, game_control
+from lucky_ones.metrics import brier_score, log_loss
+from lucky_ones.model import LogisticWinProbability, WinProbabilityModel
+from lucky_ones.plays import Play, PlaySource
+from lucky_ones.release import Metrics, TrainedOn, WinProbabilityRelease
+from lucky_ones.state import iter_states
+from lucky_ones.training import build_training_set, split_games
 
 logger = logging.getLogger("train")
 
@@ -116,8 +116,6 @@ def _source(root: str | None) -> PlaySource:
         return DatasetPlaySource(root)
     from endgame_aws.pbp_parquet import get_processed_plays_store
 
-    from lucky_ones import StorePlaySource
-
     return StorePlaySource(get_processed_plays_store())
 
 
@@ -148,8 +146,11 @@ def train(
     """
     Fit a model and write the release.
 
-    Defaults to `models/{league}.json`, which is where the README tells a
-    consumer to look.
+    Defaults to `lucky_ones/releases/{league}.json` -- the fit `MODELS.NFL`
+    serves, inside the package. So a retrain is `make train` and then a commit
+    of the JSON it rewrote: the diff is the coefficients and the holdout
+    score, which is the review you want on a model change. Pass `--out` to
+    write somewhere else without touching the shipped one.
     """
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     years, week_numbers = _parse_seasons(seasons), _parse_weeks(weeks)
@@ -191,7 +192,7 @@ def train(
         created_by=_whoami(),
     )
 
-    destination = Path(out or f"models/{league}.json")
+    destination = Path(out) if out else RELEASE_DIR / f"{league}.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(release.model_dump_json(indent=2) + "\n")
 
@@ -208,7 +209,7 @@ def train(
 
 
 def curve(
-    game_id: str,
+    game_id: str | int,
     league: str = "nfl",
     season: int = 2025,
     week: int = 1,
@@ -219,11 +220,23 @@ def curve(
     Print one game's win probability curve as JSON, and its game control.
 
     The eyeball check on a fresh release, and the same call a backend makes
-    to draw the graph -- so if this looks right, the chart will.
+    to draw the graph -- so if this looks right, the chart will. Uses the
+    bundled `MODELS[league]` by default, which is the fit a consumer would
+    get; `--model PATH` reads a release from a file instead, for checking one
+    before it's committed.
+
+    `game_id` is annotated `str | int` and coerced because fire converts an
+    all-digit argument to an int regardless of the annotation, and every ESPN
+    game id is all digits. Left alone it reaches the parquet filter as an int
+    and pyarrow refuses to compare it to a string column, so the documented
+    invocation fails on every real game.
     """
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    release = WinProbabilityRelease.model_validate_json(
-        Path(model or f"models/{league}.json").read_text()
+    game_id = str(game_id)
+    fit: WinProbabilityModel = (
+        WinProbabilityRelease.model_validate_json(Path(model).read_text()).to_model()
+        if model
+        else MODELS[league]
     )
     plays = asyncio.run(_source(root).load_game(league, season, week, game_id))
     games = group_by_game(plays)
@@ -231,7 +244,7 @@ def curve(
         raise ValueError(f"No plays for {league} {season} week {week} game {game_id}")
     (game,) = games
 
-    points = curve_from_states(release.to_model(), list(iter_states(game)))
+    points = curve_from_states(fit, list(iter_states(game)))
     control = game_control(points)
     print(
         json.dumps(

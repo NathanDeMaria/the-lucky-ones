@@ -7,6 +7,17 @@ The name is the point. A win probability model doesn't say who is better --
 it says who is currently ahead of where they need to be, which over a season
 is mostly a record of who got the bounces.
 
+```python
+from lucky_ones import MODELS, group_by_game
+
+(game,) = group_by_game(plays)
+points = MODELS.NCAAFB.curve(game)  # the graph
+control = MODELS.NCAAFB.game_control(game)  # the number under it
+```
+
+The fits ship inside the package, so that is the whole setup: no bucket, no
+credentials, no scikit-learn. See [Using a model](#using-a-model).
+
 ## Layout
 
 The pipeline, in the order the modules run:
@@ -22,7 +33,17 @@ The pipeline, in the order the modules run:
 | `model` | `WinProbabilityModel`, and a logistic baseline |
 | `metrics` | scoring the result |
 | `curve` | a game's win probability over time, and game control |
-| `release` | the artifact a consumer reads |
+| `release` | the artifact a fit is stored as |
+| `bundled` | the fits that ship with the package, and `MODELS` |
+
+`lucky_ones` itself exports five names — `MODELS`, `group_by_game`, and the
+three types on the boundary (`GamePlays`, `CurvePoint`, `GameControl`).
+That's what scoring a game needs. Everything else is one import deeper, in
+the module that owns it: `lucky_ones.model` for the fit, `lucky_ones.arrow`
+for stored plays, `lucky_ones.training` for building a training set. The
+split isn't tidiness — the deeper half is where pyarrow and scikit-learn
+live, and keeping it out of the top-level import is what makes the small
+install work.
 
 ### The play data
 
@@ -42,7 +63,7 @@ a local Protocol. Wire it up where the application is wired up:
 
 ```python
 from endgame_aws.pbp_parquet import get_processed_plays_store
-from lucky_ones import StorePlaySource
+from lucky_ones.arrow import StorePlaySource
 
 source = StorePlaySource(get_processed_plays_store())
 plays = await source.load_weeks("nfl", 2025, range(1, 19))
@@ -71,8 +92,12 @@ make plays                                        # aws s3 sync, once
 make train ARGS="--league nfl --seasons 2022-2025 --root ./plays"
 ```
 
-That writes `models/nfl.json` — a `WinProbabilityRelease`: the coefficients,
-what they were fit on, and how they scored on held-out games.
+That rewrites `lucky_ones/releases/nfl.json` — a `WinProbabilityRelease`: the
+coefficients, what they were fit on, and how they scored on held-out games —
+which is the file `MODELS.NFL` serves. **Commit it.** The fit ships with the
+code, so a retrain is a reviewable diff of eight coefficients and a holdout
+score rather than a file that appeared in a bucket. `--out PATH` writes
+somewhere else without touching the shipped one.
 
 ```
 nfl 2025: 20328 plays
@@ -81,7 +106,7 @@ Fitting on 134 games (16080 snaps), holding out 34 games
   margin_per_root_time   +5.5357
   ...
 Holdout: brier 0.1344, log loss 0.4120 over 34 games
-Wrote models/nfl.json
+Wrote lucky_ones/releases/nfl.json
 ```
 
 Two ways to get the plays. `--root` reads a local copy of endgame's
@@ -112,37 +137,74 @@ uv run python synthetic.py --root ./plays --weeks 12 --games-per-week 14
 
 It is a fixture, not a simulator — never fit a model you mean to use on it.
 
-## Reading a release from another service
+## Using a model
 
-A release is JSON, and rehydrating it needs neither the bucket nor
-scikit-learn — which is what lets invisible-string draw a curve from a fit it
-didn't make. Same arrangement as cassandra's `ModelRelease`, and for the same
-reason: depend on this package by rev, read the artifact, never run the
-fitting stack.
+The fits live in `lucky_ones/releases/*.json` and are packaged into the
+wheel, so a consumer gets the model by depending on the package:
 
 ```python
-from lucky_ones import WinProbabilityRelease, game_control, win_probability_curve
+from lucky_ones import MODELS, group_by_game
+
+(game,) = group_by_game(plays)
+
+points = MODELS.NFL.curve(game)  # one CurvePoint per snap
+control = MODELS.NFL.game_control(game)  # who controlled the game
+MODELS.NFL.metrics.brier_score  # how the fit scored on a holdout
+MODELS.NFL.trained_on.seasons  # what it was fit on
+```
+
+`MODELS.NFL` and `MODELS.NCAAFB` are attributes, so an editor and a type
+checker both know them; `MODELS["nfl"]` is there too for a league name that
+arrived in a request. Each loads and validates its JSON on first use and
+caches it, so importing the package reads nothing.
+
+That's the trade this makes against fetching a release from a bucket:
+**pinning the package by rev pins the model with it.** "Which fit is
+invisible-string drawing?" has one answer — the rev — instead of depending on
+what was at an S3 key when the process started. The cost is that a retrain is
+a commit and a release rather than a file copy, which for a model that
+changes a few times a season is the right way round. A consumer that does
+want to load a release from somewhere else still can:
+
+```python
+from lucky_ones.curve import game_control, win_probability_curve
+from lucky_ones.release import WinProbabilityRelease
 
 release = WinProbabilityRelease.model_validate_json(raw)
-points = win_probability_curve(release.to_model(), game)  # the graph
-control = game_control(points)  # the number under it
+points = win_probability_curve(release.to_model(), game)
+control = game_control(points)
 ```
 
 `points` is one `CurvePoint` per snap, carrying period, clock, both scores
 and the home team's win probability — everything an axis label or a tooltip
 needs, so the consumer never goes back to the plays.
 
-Publish somewhere the consumer can reach:
+### The two installs
 
-```sh
-make train ARGS="--league nfl --seasons 2022-2025 --out releases/nfl/latest.json"
-aws s3 cp releases/nfl/latest.json s3://BUCKET/win_probability/nfl/latest.json
-```
+Scoring a game needs neither the bucket nor scikit-learn, and that's enforced
+by the install rather than by convention:
 
-A sibling prefix to invisible-string's `models/` rather than a key inside it:
-its release reader validates everything under that prefix against cassandra's
-`ModelRelease`, and a win probability release is a different artifact, not a
-malformed one.
+| install | you get | for |
+| --- | --- | --- |
+| `lucky-ones` | numpy, pydantic | `MODELS`, scoring a game, drawing a curve |
+| `lucky-ones[train]` | + pyarrow, scikit-learn | reading stored plays, fitting a model |
+
+The extra is about 250MB — pyarrow is 152MB and scikit-learn ~100MB — against
+a scoring path that is nine floats and a logistic function, so a service that
+only draws graphs should take the bare install. Everything the small install
+can't do fails where it's used, naming the extra, rather than at import:
+`LogisticWinProbability.fit` defers its scikit-learn import, and `lucky_ones`
+doesn't export anything from `lucky_ones.arrow`, so merely importing the
+package can't pull Arrow in. `make wheel` checks the other half — that the
+fits are really in the build, which the repo's blanket `*.json` ignore would
+otherwise quietly undo.
+
+Nothing currently tests the pyarrow-free import, which is the one property
+here that a one-line edit can break silently: the dev environment always has
+pyarrow, so every other test passes either way.
+
+In this repo you always have both — `uv sync` installs the `fit` group, which
+self-references `lucky-ones[train]`.
 
 ## Game control
 
@@ -174,7 +236,8 @@ before it runs.
 make test     # pytest
 make lint     # ruff (fix + format) and ty
 make check    # the same checks, reporting instead of fixing -- what CI runs
-make train    # fit a model, write models/{league}.json
+make wheel    # build, and list the fits that made it into the wheel
+make train    # fit a model, rewrite lucky_ones/releases/{league}.json
 make curve    # one game's curve and its game control, as JSON
 make plays    # aws s3 sync the processed play-by-play down for offline fits
 ```

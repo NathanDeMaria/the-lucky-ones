@@ -352,8 +352,13 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
-    { name = "pyarrow" },
     { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+train = [
+    { name = "pyarrow" },
+    { name = "scikit-learn" },
 ]
 
 [package.dev-dependencies]
@@ -367,15 +372,17 @@ dev = [
 fit = [
     { name = "endgame-aws" },
     { name = "fire" },
-    { name = "scikit-learn" },
+    { name = "lucky-ones", extra = ["train"] },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=2.4.0" },
-    { name = "pyarrow", specifier = ">=21.0.0" },
+    { name = "pyarrow", marker = "extra == 'train'", specifier = ">=21.0.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "scikit-learn", marker = "extra == 'train'", specifier = ">=1.8.0" },
 ]
+provides-extras = ["train"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -388,7 +395,7 @@ dev = [
 fit = [
     { name = "endgame-aws", git = "https://github.com/NathanDeMaria/EndGame.git?subdirectory=py-endgame-aws&rev=26646aa4c3f77422a500603710f6b662fe94305e" },
     { name = "fire", specifier = ">=0.7.1" },
-    { name = "scikit-learn", specifier = ">=1.8.0" },
+    { name = "lucky-ones", extras = ["train"] },
 ]
 
 [[package]]

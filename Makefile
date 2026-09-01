@@ -18,17 +18,30 @@ test:
 	uv run pytest .
 
 
-# Fit a model and write models/{league}.json. Reads the bucket by default,
-# which needs AWS_PROFILE and ~/.aws-batch/config.json; pass `--root` for a
-# local copy of the processed tree, e.g.
+# What the wheel actually contains, which is the check that the fits in
+# lucky_ones/releases are still in it. hatchling reads .gitignore when it
+# decides, so a fit that stopped being tracked would also stop shipping.
+wheel:
+	uv build --wheel --out-dir dist
+	@python -c "import zipfile, sys; \
+	  names = zipfile.ZipFile(sorted(__import__('glob').glob('dist/*.whl'))[-1]).namelist(); \
+	  print('\n'.join(sorted(n for n in names if n.endswith('.json'))) or 'NO FITS IN THE WHEEL'); \
+	  sys.exit(0 if any(n.endswith('.json') for n in names) else 1)"
+
+
+# Fit a model and rewrite lucky_ones/releases/{league}.json -- the fit that
+# ships in the package, so commit what this changes. Reads the bucket by
+# default, which needs AWS_PROFILE and ~/.aws-batch/config.json; pass `--root`
+# for a local copy of the processed tree, e.g.
 #   make train ARGS="--league nfl --seasons 2022-2025 --root ./plays"
 ARGS ?=
 train:
 	uv run python train.py train $(ARGS)
 
 
-# One game's curve and its game control, as JSON. The eyeball check on a
-# fresh release: `make curve ARGS="401671789 --week 3"`.
+# One game's curve and its game control, as JSON, through the bundled fit --
+# the eyeball check on a release: `make curve ARGS="401671789 --week 3"`.
+# `--model PATH` reads one from a file instead.
 curve:
 	uv run python train.py curve $(ARGS)
 
@@ -41,4 +54,4 @@ plays:
 	aws s3 sync s3://${BUCKET}/processed/plays ./plays
 
 
-.PHONY: lint check test train curve plays
+.PHONY: lint check test wheel train curve plays

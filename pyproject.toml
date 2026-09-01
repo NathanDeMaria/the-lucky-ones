@@ -4,14 +4,12 @@ version = "0.1.0"
 description = "In-game win probability for football, from play-by-play"
 requires-python = ">=3.14"
 authors = []
+# Inference only. What a consumer needs to turn a release into a curve, and
+# nothing else: numpy for the dot product, pydantic for the artifact. Both
+# are small, and both are already in any service that would draw one.
 dependencies = [
-    # The play data arrives as an Arrow table -- that's what endgame's
-    # processed layer writes and what `lucky_ones.arrow` adapts. Nothing in
-    # the model layer imports it: `lucky_ones.plays` is protocols only, so a
-    # caller with plays from somewhere else never touches pyarrow.
-    "pyarrow>=21.0.0",
     # Feature matrices, and the dot product that `LogisticWinProbability`
-    # scores with. Deliberately not scipy or sklearn -- see the `fit` group.
+    # scores with. Deliberately not scipy or sklearn -- see the `train` extra.
     "numpy>=2.4.0",
     # The release artifact only. Same reason cassandra carries it: a consumer
     # reading a fit gets a validated schema rather than a dict, and pydantic
@@ -19,27 +17,46 @@ dependencies = [
     "pydantic>=2.12.5",
 ]
 
-# Fitting, not scoring. A consumer that installs lucky-ones as a dependency
-# gets the model, `predict` and the saved-coefficient round trip; it does not
-# get scikit-learn, because dependency groups (PEP 735) never make it into
-# package metadata. That is what keeps a ~100MB solver out of an image whose
-# only job is to load a JSON fit and evaluate a logistic function.
+# Package capabilities that cost real weight: reading endgame's stored parquet
+# (`lucky_ones.arrow`) and producing a fit (`LogisticWinProbability.fit`).
+# Both are importable API, so this is an extra rather than a dependency group
+# -- `pip install 'lucky-ones[train]'` has to be able to turn them on, and
+# dependency groups never reach package metadata.
 #
-# `uv sync` installs this by default (see tool.uv.default-groups), so local
-# dev and CI are unaffected. The cost: a bare `pip install lucky-ones` can
-# rehydrate a fit but not produce one, so `LogisticWinProbability.fit`
-# imports sklearn inside the function and the ImportError lands there rather
-# than at import time.
-[dependency-groups]
-fit = [
+# The split is worth about 250MB: pyarrow is 152MB and scikit-learn ~100MB,
+# against a scoring path that is nine floats and a logistic function. An
+# inference consumer pulling either would be carrying a fitting stack it never
+# calls. The cost is that a bare `pip install lucky-ones` can rehydrate a
+# release but not produce one, and can't read stored parquet -- both of which
+# fail where they're used, naming this extra, rather than at import time (see
+# `model.fit` and `__init__.__getattr__`).
+[project.optional-dependencies]
+train = [
+    # What endgame's processed layer writes, and what `lucky_ones.arrow`
+    # adapts. Nothing in the model layer imports it: `lucky_ones.plays` is
+    # protocols only, so a caller with plays from somewhere else -- or one
+    # only scoring a game -- never touches pyarrow.
+    "pyarrow>=21.0.0",
     "scikit-learn>=1.8.0",
+]
+
+[dependency-groups]
+# This repo's own tooling, which is not the same list as the `train` extra:
+# these back `train.py` and the tests, not anything importable from the
+# package. `endgame-aws` in particular stays out of package metadata on
+# purpose -- `StorePlaySource` takes the store as an argument typed against a
+# local Protocol precisely so that depending on lucky-ones never means
+# depending on a bucket client.
+fit = [
+    # Pulls the extra above into the working environment, so `uv sync` gives a
+    # developer the whole thing. uv has no `default-extras`, and a self
+    # reference in a default group is the supported way to say it.
+    "lucky-ones[train]",
     # `train.py`'s CLI.
     "fire>=0.7.1",
-    # Where the plays live. A *training* dependency, not a package one: the
-    # library takes a `PlaySource`, and only the script that goes and gets
-    # real plays needs the thing that reads the bucket. Pinned to a rev like
-    # cassandra pins it -- unpinned, the stored play schema can move under a
-    # retrain with nothing in the diff saying so.
+    # Where the plays live. Pinned to a rev like cassandra pins it --
+    # unpinned, the stored play schema can move under a retrain with nothing
+    # in the diff saying so.
     "endgame-aws @ git+https://github.com/NathanDeMaria/EndGame.git@26646aa4c3f77422a500603710f6b662fe94305e#subdirectory=py-endgame-aws",
 ]
 dev = [
@@ -56,9 +73,20 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
+# Everything under `lucky_ones/`, which includes the fits in
+# `lucky_ones/releases/*.json` -- what `MODELS.NFL` reads. Nothing declares
+# them separately because hatchling packages the directory, not just its
+# `.py` files. It does honour .gitignore when it decides, though, and the
+# repo's blanket `*.json` would drop them, so that file negates the releases
+# explicitly. `make wheel` asserts they're really in the build.
 packages = ["lucky_ones"]
 
 [tool.uv]
+# Everything, locally and in CI: this repo is where fits get produced, so a
+# developer environment missing the training stack would fail at `make train`
+# rather than at install. `fit` self-references `lucky-ones[train]`, so this
+# pulls the extra in too. Consumers resolve from package metadata and get
+# neither -- opt-in for them, default-on here.
 default-groups = ["dev", "fit"]
 
 [tool.pytest.ini_options]

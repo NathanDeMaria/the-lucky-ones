@@ -101,9 +101,10 @@ class LogisticWinProbability:
             from sklearn.linear_model import LogisticRegression
         except ImportError as error:  # pragma: no cover - depends on the install
             raise ImportError(
-                "Fitting needs scikit-learn, which isn't a runtime dependency of "
-                "lucky-ones. Install the `fit` dependency group: `uv sync`, or "
-                "`pip install scikit-learn`."
+                "Fitting needs scikit-learn, which isn't an install dependency "
+                "of lucky-ones -- scoring a game never calls a solver. Install "
+                "the training extra: `pip install 'lucky-ones[train]'`, or "
+                "`uv sync` in this repo."
             ) from error
 
         if len(states) != len(home_won):
