@@ -187,24 +187,33 @@ by the install rather than by convention:
 | install | you get | for |
 | --- | --- | --- |
 | `lucky-ones` | numpy, pydantic | `MODELS`, scoring a game, drawing a curve |
-| `lucky-ones[train]` | + pyarrow, scikit-learn | reading stored plays, fitting a model |
+| `lucky-ones[data]` | + pyarrow (152MB) | reading endgame's stored plays |
+| `lucky-ones[fit]` | + scikit-learn (~100MB) | fitting a model |
+| `lucky-ones[data,fit]` | both | this repo, and anything that trains |
 
-The extra is about 250MB — pyarrow is 152MB and scikit-learn ~100MB — against
-a scoring path that is nine floats and a logistic function, so a service that
-only draws graphs should take the bare install. Everything the small install
-can't do fails where it's used, naming the extra, rather than at import:
-`LogisticWinProbability.fit` defers its scikit-learn import, and `lucky_ones`
-doesn't export anything from `lucky_ones.arrow`, so merely importing the
-package can't pull Arrow in. `make wheel` checks the other half — that the
-fits are really in the build, which the repo's blanket `*.json` ignore would
-otherwise quietly undo.
+**The two extras are separate because the jobs are.** A service that draws
+curves for games it didn't fit needs Arrow and no solver; a caller with a
+training set already in hand needs the solver and no Arrow. One `[train]`
+extra covering both made the first case carry ~100MB of scikit-learn to
+satisfy an import it never makes — reading a stored fit should never require
+the ability to produce one.
+
+Together they are about 250MB against a scoring path that is nine floats and a
+logistic function, so a service that only draws graphs should take
+`[data]` and a bare install should be the default assumption. Everything the
+small install can't do fails where it's used, naming the extra that fixes it,
+rather than at import: `LogisticWinProbability.fit` defers its scikit-learn
+import, and `lucky_ones` doesn't export anything from `lucky_ones.arrow`, so
+merely importing the package can't pull Arrow in. `make wheel` checks the
+other half — that the fits are really in the build, which the repo's blanket
+`*.json` ignore would otherwise quietly undo.
 
 Nothing currently tests the pyarrow-free import, which is the one property
 here that a one-line edit can break silently: the dev environment always has
 pyarrow, so every other test passes either way.
 
-In this repo you always have both — `uv sync` installs the `fit` group, which
-self-references `lucky-ones[train]`.
+In this repo you always have both — `uv sync` installs the `train` group,
+which self-references `lucky-ones[data,fit]`.
 
 ## Game control
 

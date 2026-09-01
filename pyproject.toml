@@ -17,41 +17,59 @@ dependencies = [
     "pydantic>=2.12.5",
 ]
 
-# Package capabilities that cost real weight: reading endgame's stored parquet
-# (`lucky_ones.arrow`) and producing a fit (`LogisticWinProbability.fit`).
-# Both are importable API, so this is an extra rather than a dependency group
-# -- `pip install 'lucky-ones[train]'` has to be able to turn them on, and
+# Two package capabilities that cost real weight, and they are two extras
+# rather than one because they are two different jobs: *reading stored plays*
+# (`lucky_ones.arrow`) and *producing a fit* (`LogisticWinProbability.fit`).
+# Both are importable API, so these are extras rather than dependency groups --
+# `pip install 'lucky-ones[data]'` has to be able to turn one on, and
 # dependency groups never reach package metadata.
 #
-# The split is worth about 250MB: pyarrow is 152MB and scikit-learn ~100MB,
-# against a scoring path that is nine floats and a logistic function. An
-# inference consumer pulling either would be carrying a fitting stack it never
-# calls. The cost is that a bare `pip install lucky-ones` can rehydrate a
-# release but not produce one, and can't read stored parquet -- both of which
-# fail where they're used, naming this extra, rather than at import time (see
-# `model.fit` and `__init__.__getattr__`).
+# One extra for both was the first shape and it was too coarse. The consumer
+# that showed why is invisible-string: it draws curves from stored parquet and
+# never fits anything, so `[train]` handed it a ~100MB solver to satisfy an
+# import it doesn't make. Reading a stored fit must never require the ability
+# to produce one -- the rule cassandra's dependency states -- and an extra that
+# can't express that is an extra that makes consumers break it.
+#
+# Together they are worth about 250MB: pyarrow is 152MB and scikit-learn
+# ~100MB, against a scoring path that is nine floats and a logistic function.
+# Take neither and a bare `pip install lucky-ones` can rehydrate a release but
+# not produce one, and can't read stored parquet -- both of which fail where
+# they're used, naming the extra that fixes them, rather than at import time
+# (see `model.fit` and `arrow`'s import guard).
 [project.optional-dependencies]
-train = [
+# Reading endgame's stored play-by-play: `lucky_ones.arrow`, and nothing else.
+# What a service that scores games it didn't fit takes -- it is the whole of
+# what such a consumer needs beyond the bare install.
+data = [
     # What endgame's processed layer writes, and what `lucky_ones.arrow`
     # adapts. Nothing in the model layer imports it: `lucky_ones.plays` is
     # protocols only, so a caller with plays from somewhere else -- or one
     # only scoring a game -- never touches pyarrow.
     "pyarrow>=21.0.0",
+]
+# Producing a fit: `LogisticWinProbability.fit`, and nothing else. Note it
+# does *not* pull `data` in: a caller with a training set already in hand can
+# fit without ever reading a parquet file, which is what the tests do.
+fit = [
     "scikit-learn>=1.8.0",
 ]
 
 [dependency-groups]
-# This repo's own tooling, which is not the same list as the `train` extra:
+# This repo's own tooling, which is not the same list as the extras above:
 # these back `train.py` and the tests, not anything importable from the
 # package. `endgame-aws` in particular stays out of package metadata on
 # purpose -- `StorePlaySource` takes the store as an argument typed against a
 # local Protocol precisely so that depending on lucky-ones never means
 # depending on a bucket client.
-fit = [
-    # Pulls the extra above into the working environment, so `uv sync` gives a
+#
+# Named for `make train`, which is what it exists for -- and so that the group
+# and the `fit` extra can't be mistaken for each other now that there is one.
+train = [
+    # Pulls both extras into the working environment, so `uv sync` gives a
     # developer the whole thing. uv has no `default-extras`, and a self
     # reference in a default group is the supported way to say it.
-    "lucky-ones[train]",
+    "lucky-ones[data,fit]",
     # `train.py`'s CLI.
     "fire>=0.7.1",
     # Where the plays live. Pinned to a rev like cassandra pins it --
@@ -84,10 +102,10 @@ packages = ["lucky_ones"]
 [tool.uv]
 # Everything, locally and in CI: this repo is where fits get produced, so a
 # developer environment missing the training stack would fail at `make train`
-# rather than at install. `fit` self-references `lucky-ones[train]`, so this
-# pulls the extra in too. Consumers resolve from package metadata and get
-# neither -- opt-in for them, default-on here.
-default-groups = ["dev", "fit"]
+# rather than at install. `train` self-references `lucky-ones[data,fit]`, so
+# this pulls both extras in too. Consumers resolve from package metadata and
+# get neither -- opt-in for them, default-on here.
+default-groups = ["dev", "train"]
 
 [tool.pytest.ini_options]
 # `async def test_...` runs without a per-test marker, like endgame's suites

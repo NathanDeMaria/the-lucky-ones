@@ -35,12 +35,14 @@ The pipeline, in the order the modules run:
     release   the artifact a fit is stored as
     bundled   the fits that ship with the package, and `MODELS`
 
-Installing it comes in two sizes, because those modules do two jobs. A bare
-`pip install lucky-ones` is the inference half -- numpy and pydantic -- which
-is everything the five names above reach. Producing a fit, or reading
-endgame's stored parquet, needs `lucky-ones[train]`: pyarrow, the solver, and
-the store client, about 250MB that a consumer drawing a graph has no use for.
-That half is not exported here, and importing it is what asks for the extra:
+Installing it comes in three sizes, because those modules do three jobs. A
+bare `pip install lucky-ones` is the inference half -- numpy and pydantic --
+which is everything the five names above reach. Beyond it are two extras, and
+they are separate because the jobs are: `lucky-ones[data]` adds pyarrow, for
+reading endgame's stored plays, and `lucky-ones[fit]` adds the solver, for
+producing a fit. A service that scores games it didn't fit takes the first and
+not the second; this repo takes both. Neither half is exported here, and
+importing it is what asks for its extra:
 
     from endgame_aws.pbp_parquet import get_processed_plays_store
 
