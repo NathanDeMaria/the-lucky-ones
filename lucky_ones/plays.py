@@ -116,6 +116,18 @@ class Play(Protocol):
     def play_type(self) -> str | None: ...
 
     @property
+    def text(self) -> str | None:
+        """
+        ESPN's sentence about the play ("Hurts pass intercepted by Slay").
+
+        The only column here that isn't a number or a flag, and the only place
+        the *manner* of a play is recorded: `is_turnover` says the ball
+        changed hands, and nothing but this says it changed hands off a tipped
+        ball. `lucky_ones.luck` is what reads it. Nothing in the model does --
+        a feature over free text is not what the eight coefficients are.
+        """
+
+    @property
     def scoring_play(self) -> bool | None: ...
 
     @property

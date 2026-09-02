@@ -16,6 +16,11 @@ snaps counts a two-minute drill's fifteen plays the same as a quarter of
 grinding, so a team that trailed all game and lost on a frantic last drive
 comes out looking like it was in it. Weighting by elapsed clock says what
 "most of the game" means.
+
+Both numbers here measure what happened, which is the right thing for them to
+measure and also what hands a team full credit for a fumble that bounced their
+way. `lucky_ones.luck` is the neighbouring question -- the same curve with the
+coin flips split evenly -- and it builds on these rather than replacing them.
 """
 
 from typing import NamedTuple, Sequence

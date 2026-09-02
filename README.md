@@ -13,6 +13,7 @@ from lucky_ones import MODELS, group_by_game
 (game,) = group_by_game(plays)
 points = MODELS.NCAAFB.curve(game)  # the graph
 control = MODELS.NCAAFB.game_control(game)  # the number under it
+earned = MODELS.NCAAFB.luck_adjusted_game_control(game)  # minus the bounces
 ```
 
 The fits ship inside the package, so that is the whole setup: no bucket, no
@@ -33,6 +34,7 @@ The pipeline, in the order the modules run:
 | `model` | `WinProbabilityModel`, and a logistic baseline |
 | `metrics` | scoring the result |
 | `curve` | a game's win probability over time, and game control |
+| `luck` | the same, with the coin flips split evenly |
 | `release` | the artifact a fit is stored as |
 | `bundled` | the fits that ship with the package, and `MODELS` |
 
@@ -85,6 +87,12 @@ each caller:
   carries its touchdown, so training on it leaks the result into the
   features. `iter_states` takes the score from the previous play.
 
+One column stands apart from the rest: `text`, ESPN's sentence about the play.
+Nothing the model sees is built from it — the eight features are numbers and
+flags — but it's the only place the *manner* of a play is recorded.
+`is_turnover` says the ball changed hands; nothing but the text says it changed
+hands off a tipped ball. `lucky_ones.luck` is what reads it.
+
 ## Training a model
 
 ```sh
@@ -124,8 +132,12 @@ make curve ARGS="401671789 --week 3"
 ```
 {"game_id": "401671789", "home_team_id": "...", "away_team_id": "...",
  "game_control": {"home": 0.804, "away": 0.196, "seconds": 3600},
+ "luck_adjusted_game_control": {"home": 0.731, "away": 0.269, "seconds": 3600},
+ "lucky_plays": [{"play_id": "...", "kind": "fumble_lost", "retained": 0.5,
+                  "changed_possession": true}, ...],
  "points": [{"period": 1, "clock_seconds": 900, "home_score": 0,
-             "home_win_probability": 0.464}, ...]}
+             "home_win_probability": 0.464,
+             "luck_adjusted_win_probability": 0.464}, ...]}
 ```
 
 No AWS and no data at all? `synthetic.py` writes a football-shaped tree in
@@ -149,6 +161,7 @@ from lucky_ones import MODELS, group_by_game
 
 points = MODELS.NFL.curve(game)  # one CurvePoint per snap
 control = MODELS.NFL.game_control(game)  # who controlled the game
+earned = MODELS.NFL.luck_adjusted_game_control(game)  # who earned it
 MODELS.NFL.metrics.brier_score  # how the fit scored on a holdout
 MODELS.NFL.trained_on.seasons  # what it was fit on
 ```
@@ -233,6 +246,103 @@ overtime has no clock to weight by.
 
 The synthetic game above is the case worth having it for: 0.80 control for a
 team that led 20-17 with a minute left and lost.
+
+## Luck-adjusted game control
+
+`game_control` measures what happened, which is also what hands a team full
+credit for a fumble that bounced their way. `luck_adjusted_game_control`
+answers the neighbouring question: **how much of the game would this team have
+controlled if the fifty-fifty balls had gone fifty-fifty?**
+
+```python
+control = MODELS.NFL.game_control(game)  # 0.68 -- what happened
+earned = MODELS.NFL.luck_adjusted_game_control(game)  # 0.59 -- on purpose
+```
+
+Report them as a pair. The gap between them is the bounces.
+
+### How it works
+
+Three steps, in `lucky_ones.luck`:
+
+1. **Find the coin flips.** `find_lucky_plays` reads `Play.text` — ESPN's
+   sentence about the play, the only column that records the *manner* of one —
+   for the plays whose result was decided by a bounce.
+2. **Ask the model what the other branch was worth.** Every play it finds has
+   two outcomes that matter: the ball changed hands or it didn't. The one that
+   didn't happen is a `GameState` the code can build and the fit can price, so
+   the counterfactual is the model's own number rather than a constant someone
+   picked. The ball sits at the spot of the snap and the only thing that moves
+   is who has it — same team on the next down, or the other team first and ten
+   at the mirrored yardline.
+3. **Replace the swing with the average of the two.** The play's win
+   probability move becomes `retained × what happened + (1 − retained) × the
+   other branch`, and every later point on the curve carries the difference
+   forward.
+
+That last part is the point rather than a rounding decision: a fumble returned
+for a touchdown in the first quarter is still on the scoreboard in the fourth,
+so a curve that discounts the recovery has to keep discounting it. The blend is
+done in probability space, because it's an expectation over outcomes; the
+accumulation is in log-odds, because that's the fit's own additive scale and
+because a shifted curve then stays inside (0, 1) with no clamp bending the
+endgame back into range.
+
+### What counts, and what it's worth
+
+`retained` is a probability: how often the outcome that happened is the one
+that happens.
+
+| kind | `retained` | why |
+| --- | --- | --- |
+| `fumble_lost` | 0.5 | loose-ball recovery is a coin flip; neither side recovers its own at a rate that holds up year over year |
+| `fumble_kept` | 0.5 | the same coin, seen from the side that got away with one |
+| `tipped_interception` | 0.25 | a ball off a hand or a helmet falls incomplete far more often than a defender comes down with it |
+
+Those are estimates, not fits — there's no labelled set of counterfactual
+fumbles to fit them on. They're a keyword argument everywhere they're used, so
+a caller who disagrees says so at the call site:
+
+```python
+from lucky_ones.luck import DEFAULT_RETAINED, LuckKind
+
+MODELS.NFL.luck_adjusted_game_control(
+    game, retained={**DEFAULT_RETAINED, LuckKind.TIPPED_INTERCEPTION: 0.4}
+)
+```
+
+`retained=1.0` for every kind reproduces the unadjusted curve exactly, which
+is what the tests check — so if the two numbers ever differ by the arithmetic
+rather than by the luck, that fails.
+
+The list is short because each entry has to clear two bars: the play text says
+it happened, and the outcome that *didn't* happen is one this code can build a
+`GameState` for. Left out, deliberately: muffed punts and kickoff fumbles
+(`iter_states` keeps scrimmage snaps only, so a kickoff isn't on the curve to
+adjust); blocked kicks (the block is a play someone made, and only the bounce
+after it is luck); a field goal off the upright (no branch to build);
+untipped interceptions (a throw into coverage is a decision).
+
+### Three things it isn't
+
+- **A prediction.** The adjusted curve doesn't end at 0 or 1 the way the real
+  one does. The game had a winner; this is a counterfactual, and its last point
+  is where the game *would* have stood.
+- **Symmetric in what it can see.** A fumble the offense recovered is in the
+  play text, so a team that got away with one is charged for it. A pass that
+  was tipped and *not* intercepted mostly isn't in the text at all, so it
+  can't be. That's a real gap; what keeps it from being fatal is that a
+  near-miss's realized swing is already near zero — what's missing is the
+  discount on the other side of the same coin, which is small.
+- **A change to the model.** The fit is untouched. This reweights the curve
+  that fit produces; nothing here is retrained, and no release changes.
+
+The counterfactual is an approximation, and the shape of its error is worth
+knowing: it prices a turnover at the line of scrimmage, ignoring the yards the
+play gained before the ball came loose and the yards a return added after.
+Against the thing being measured — who has the ball — that's small. Twenty-five
+yards of field position is worth a few points of win probability; the
+possession itself is worth several times that.
 
 ## Development
 

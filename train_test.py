@@ -75,8 +75,34 @@ def test_curve_prints_a_series_and_its_control(tmp_path, tree, capsys):
         "home_score",
         "away_score",
         "home_win_probability",
+        "luck_adjusted_win_probability",
     }
     assert 0.0 < first["home_win_probability"] < 1.0
     control = payload["game_control"]
     assert control["home"] + control["away"] == pytest.approx(1.0)
     assert control["seconds"] == 3600
+
+
+def test_curve_prints_the_luck_adjusted_control_too(tmp_path, tree, capsys):
+    """
+    The pair a reader wants: what happened, and what happened on purpose. The
+    synthetic tree carries fumble text (see `synthetic.FUMBLE_CHANCE`) so this
+    exercises the adjustment rather than the no-luck shortcut through it.
+    """
+    out = tmp_path / "nfl.json"
+    train(league="nfl", seasons="2025", root=str(tree), out=str(out))
+
+    curve("g100", league="nfl", season=2025, week=1, model=str(out), root=str(tree))
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["lucky_plays"], "the fixture should contain some fumbles"
+    assert {lucky["kind"] for lucky in payload["lucky_plays"]} <= {
+        "fumble_lost",
+        "fumble_kept",
+        "tipped_interception",
+    }
+    earned = payload["luck_adjusted_game_control"]
+    assert earned["home"] + earned["away"] == pytest.approx(1.0)
+    assert earned["seconds"] == payload["game_control"]["seconds"]
+    # Bounces went someone's way, so the two numbers are not the same one
+    assert earned["home"] != pytest.approx(payload["game_control"]["home"])

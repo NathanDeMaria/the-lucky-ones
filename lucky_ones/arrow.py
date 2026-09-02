@@ -75,6 +75,7 @@ class ArrowPlay(NamedTuple):
     distance: int | None
     yardline: int | None
     play_type: str | None
+    text: str | None
     scoring_play: bool | None
     is_penalty: bool | None
     is_turnover: bool | None
@@ -86,11 +87,11 @@ class ArrowPlay(NamedTuple):
 
 
 # The columns `ArrowPlay` needs, which is a subset of what endgame writes:
-# `text`, `sequence_number`, the end-of-play situation and the drive's yardage
-# are all in the parquet and none of them are read here. Selecting explicitly
-# rather than taking the whole row keeps the conversion off columns nothing
-# uses, and turns a renamed column into an error naming the column instead of
-# a TypeError about arguments.
+# `sequence_number`, the end-of-play situation and the drive's yardage are all
+# in the parquet and none of them are read here. Selecting explicitly rather
+# than taking the whole row keeps the conversion off columns nothing uses, and
+# turns a renamed column into an error naming the column instead of a
+# TypeError about arguments.
 PLAY_COLUMNS: tuple[str, ...] = ArrowPlay._fields
 
 

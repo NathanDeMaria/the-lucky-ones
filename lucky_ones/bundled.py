@@ -4,7 +4,8 @@ The fits that ship inside the package, and the `MODELS` that reaches them.
     from lucky_ones import MODELS
 
     points = MODELS.NCAAFB.curve(game)
-    control = MODELS.NCAAFB.game_control(game)
+    control = MODELS.NCAAFB.game_control(game)               # what happened
+    earned = MODELS.NCAAFB.luck_adjusted_game_control(game)  # on purpose
 
 The releases in `lucky_ones/releases/` are data files inside the wheel, not
 something a consumer fetches. That is a deliberate trade: a fit is ~1.3KB of
@@ -32,12 +33,19 @@ from dataclasses import dataclass, fields
 from functools import cached_property
 from importlib.resources import files
 from pathlib import Path
-from typing import Iterator, Sequence
+from typing import Iterator, Mapping, Sequence
 
 import numpy as np
 
 from .curve import CurvePoint, GameControl, curve_from_states, game_control
 from .game import GamePlays
+from .luck import (
+    DEFAULT_RETAINED,
+    AdjustedCurve,
+    LuckKind,
+    luck_adjusted_curve,
+    luck_adjusted_game_control,
+)
 from .model import LogisticWinProbability
 from .release import Metrics, TrainedOn, WinProbabilityRelease
 from .state import GameState, iter_states
@@ -141,6 +149,34 @@ class BundledModel:
         `lucky_ones.curve.game_control`.
         """
         return game_control(self.curve(game))
+
+    def luck_adjusted_curve(
+        self,
+        game: GamePlays,
+        *,
+        retained: Mapping[LuckKind, float] = DEFAULT_RETAINED,
+    ) -> AdjustedCurve:
+        """
+        The curve with the coin flips split, alongside the real one and the
+        plays that moved between them. See `lucky_ones.luck`.
+        """
+        return luck_adjusted_curve(self.model, game, retained=retained)
+
+    def luck_adjusted_game_control(
+        self,
+        game: GamePlays,
+        *,
+        retained: Mapping[LuckKind, float] = DEFAULT_RETAINED,
+    ) -> GameControl | None:
+        """
+        The share of `game` each team would have controlled with the fumbles
+        and the tipped balls split evenly.
+
+        Next to `game_control` this is the pair worth reporting: what happened,
+        and what happened on purpose. None on the same games `game_control` is
+        None on.
+        """
+        return luck_adjusted_game_control(self.model, game, retained=retained)
 
 
 @dataclass(frozen=True)

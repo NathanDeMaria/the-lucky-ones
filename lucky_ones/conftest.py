@@ -38,6 +38,7 @@ TEST_SCHEMA = pa.schema(
         pa.field("distance", pa.int16()),
         pa.field("yardline", pa.int8()),
         pa.field("play_type", pa.string()),
+        pa.field("text", pa.string()),
         pa.field("scoring_play", pa.bool_()),
         pa.field("is_penalty", pa.bool_()),
         pa.field("is_turnover", pa.bool_()),
@@ -67,6 +68,10 @@ _DEFAULTS: dict[str, Any] = {
     "distance": 10,
     "yardline": 25,
     "play_type": "Rush",
+    # None rather than a sentence, so a test that cares about `lucky_ones.luck`
+    # has to say so: every classifier there reads this column, and a default
+    # with words in it would decide their cases for them.
+    "text": None,
     "scoring_play": False,
     "is_penalty": False,
     "is_turnover": False,
