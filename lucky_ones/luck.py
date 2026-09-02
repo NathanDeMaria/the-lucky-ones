@@ -1,14 +1,25 @@
 """
-Game control with the coin flips taken out.
+The coin flips: finding them, and the two ways of reporting them.
 
 `lucky_ones.curve.game_control` measures what happened. That is the honest
 answer to "who controlled this game", and it is also the answer that hands a
 team full credit for a fumble that bounced their way -- an outcome nobody on
-the field decided. This module answers the neighbouring question: *how much
-of the game would this team have controlled if the fifty-fifty balls had gone
-fifty-fifty?*
+the field decided. This module is what to say about that, and there are two
+things worth saying, so there are two numbers:
 
-The shape of it is three steps:
+- `luck_adjusted_game_control` -- *how much of the game would this team have
+  controlled if the fifty-fifty balls had gone fifty-fifty?* A rewrite of the
+  game: the curve is redrawn with each bounce replaced by its average, and
+  `game_control` is taken over the result. Read next to the real number, and
+  in the same units.
+- `lucky_wp` -- *how much win probability did the bounces hand each team?* An
+  accounting of the game rather than a rewrite: each bounce contributes once,
+  the curve is left alone, and the totals are win probability rather than a
+  share of anything. Read on its own, as the size of the breaks.
+
+They are the same three steps up to the last one, and they share the first
+two exactly (`_priced_branches`), so they can differ about what a bounce was
+worth but never about which plays bounced:
 
 1. **Find the coin flips.** `find_lucky_plays` reads `Play.text` for the
    handful of plays whose result was decided by a bounce -- a fumble, and an
@@ -19,10 +30,11 @@ The shape of it is three steps:
    one that didn't happen is a `GameState` we can build (`_counterfactual`)
    and the model can price, so the counterfactual is the model's own number
    rather than a constant someone picked.
-3. **Replace the swing with the average of the two.** The play's win
-   probability move becomes `retained * what happened + (1 - retained) * the
-   other branch`, and every later point on the curve carries the difference
-   forward.
+3. **Then either replace the swing with the average of the two** -- the play's
+   win probability move becomes `retained * what happened + (1 - retained) *
+   the other branch`, and every later point on the curve carries the
+   difference forward -- **or bank the difference between the two** as the
+   part of the swing the bounce is responsible for, and total it per team.
 
 `retained` is a probability: how often the outcome that happened is the one
 that happens. A fumble is recovered by either side about half the time, so
@@ -38,11 +50,11 @@ Three things this deliberately is not:
 - **Symmetric in what it can see.** A fumble the offense recovered is in the
   play text, so the team that got away with one is charged for it. A pass
   that was tipped and *not* intercepted mostly isn't in the text at all, so
-  it can't be. That is a real gap, and the reason it isn't fatal is that a
-  near-miss's realized swing is already near zero -- what's missing is the
-  discount on the *other* side of the same coin, which is small.
-- **An adjustment to the model.** The fit is untouched. This reweights the
-  curve that fit produces; retrain nothing.
+  it can't be. How much that costs depends on which number you are reading,
+  and it is not the same answer for both -- see the second bullet in
+  `lucky_wp`, where it costs the most.
+- **An adjustment to the model.** The fit is untouched. Both numbers are read
+  off the curve that fit produces; retrain nothing.
 """
 
 from enum import StrEnum
@@ -164,6 +176,93 @@ class AdjustedCurve(NamedTuple):
     """
 
 
+class LuckySwing(NamedTuple):
+    """
+    One lucky play, priced both ways.
+
+    `realized` and `counterfactual` are the two branches as home win
+    probability *after* the play: what the model made of the snap that
+    followed, and what it makes of the snap that would have followed. The gap
+    between them is everything the bounce was worth; `home_delta` is the share
+    of that gap the bounce handed out rather than the offense earning.
+    """
+
+    play_id: str
+    play_number: int
+    kind: LuckKind
+
+    retained: float
+    """`P(the outcome that happened)` -- see `DEFAULT_RETAINED`."""
+
+    realized: float
+    """Home win probability at the next snap: the branch that happened."""
+
+    counterfactual: float
+    """
+    Home win probability of the branch that didn't, as the fit prices it.
+
+    Built from the snap rather than from the play (`_counterfactual`), so it
+    carries the snap's score and clock while `realized` carries the next
+    snap's. That asymmetry is deliberate and it is not free: see
+    `lucky_wp`.
+    """
+
+    @property
+    def expected(self) -> float:
+        """
+        Where the play left the game in expectation, before the ball bounced:
+        `retained * what happened + (1 - retained) * the other branch`.
+        """
+        return (
+            self.retained * self.realized + (1.0 - self.retained) * self.counterfactual
+        )
+
+    @property
+    def home_delta(self) -> float:
+        """
+        `realized - expected`: win probability the bounce handed the home team,
+        negative when it went the other way.
+
+        Equal to `(1 - retained) * (realized - counterfactual)`, which is the
+        reading worth carrying: a bounce hands out the whole gap between its
+        two branches *less* the part that was going to happen anyway. A coin
+        flip hands out half the gap, a one-in-four bounce three quarters of it.
+        """
+        return self.realized - self.expected
+
+
+class LuckyWP(NamedTuple):
+    """
+    Win probability the bounces handed each team over a game.
+
+    Not a share of anything, which is where this differs most sharply from its
+    neighbour `GameControl`: **`home` and `away` do not sum to 1**. Each is a
+    total of win probability in the units the curve is drawn in, so 0.18 for
+    the home team reads as "the breaks that went their way were worth eighteen
+    points of win probability more than those same plays were worth before the
+    ball landed".
+
+    Counted as two non-negative totals rather than one signed number because
+    "both teams got a big break" and "neither team got one" are different
+    games and `net` alone can't tell them apart. `net` is there for the caller
+    who only wants the one number.
+    """
+
+    home: float
+    """Win probability the bounces handed the home team. >= 0."""
+
+    away: float
+    """Win probability the bounces handed the away team. >= 0."""
+
+    swings: list[LuckySwing]
+    """Every play in the total, in game order. Empty when nothing bounced."""
+
+    @property
+    def net(self) -> float:
+        """`home - away`: who came out ahead on the bounces, and by how much."""
+        return self.home - self.away
+
+
 def luck_adjusted_curve(
     model: WinProbabilityModel,
     game: GamePlays,
@@ -225,31 +324,15 @@ def adjusted_curve_from_states(
     discounting it.
     """
     realized = curve_from_states(model, states)
-    if len(realized) < 2:
-        # One snap has no delta to adjust, and no elapsed time either -- the
-        # curve is the curve.
+    branches = _priced_branches(model, states, realized, lucky_plays)
+    if not branches:
+        # No bounce with a snap after it -- including the one-snap game, which
+        # has no delta to adjust and no elapsed time either. The curve is the
+        # curve.
         return AdjustedCurve(points=realized, realized=realized, lucky_plays=[])
 
-    by_play_id = {lucky.play_id: lucky for lucky in lucky_plays}
-    # `[:-1]` because a lucky play on the last snap moves nothing after it.
-    applied = [
-        (index, by_play_id[point.play_id])
-        for index, point in enumerate(realized[:-1])
-        if point.play_id in by_play_id
-    ]
-    if not applied:
-        return AdjustedCurve(points=realized, realized=realized, lucky_plays=[])
-
-    branches = model.predict(
-        [
-            _counterfactual(states[index], lucky.changed_possession)
-            for index, lucky in applied
-        ]
-    )
-    counterfactual = {
-        index: float(probability) for (index, _), probability in zip(applied, branches)
-    }
-    lucky_at = dict(applied)
+    counterfactual = {branch.index: branch.counterfactual for branch in branches}
+    lucky_at = {branch.index: branch.lucky for branch in branches}
 
     logit = _logit(realized[0].home_win_probability)
     points = [realized[0]]
@@ -267,8 +350,151 @@ def adjusted_curve_from_states(
     return AdjustedCurve(
         points=points,
         realized=realized,
-        lucky_plays=[lucky for _, lucky in applied],
+        lucky_plays=[branch.lucky for branch in branches],
     )
+
+
+def lucky_wp(
+    model: WinProbabilityModel,
+    game: GamePlays,
+    *,
+    retained: Mapping[LuckKind, float] = DEFAULT_RETAINED,
+) -> LuckyWP:
+    """
+    How much win probability the bounces handed each team.
+
+    The other number in this module, and the one that answers "who got the
+    breaks" rather than "who would have controlled this game without them".
+    For every lucky play it takes the gap between the branch that happened and
+    the branch that didn't, and keeps the share of that gap the bounce was
+    responsible for -- `(1 - retained)` of it. Those add up, per team.
+
+    Where `luck_adjusted_game_control` is a *rewrite* of the game, this is an
+    *accounting* of it: nothing is carried forward, nothing is re-averaged
+    over the clock, and the game's realized curve is left exactly as it is.
+    Each play contributes once, and the total is in win probability, so it
+    reads on the same scale as the curve a chart draws. The two are meant to
+    be read together -- one says how big the bounces were, the other says what
+    the game looks like without them.
+
+    Two things to hold onto when reading the number:
+
+    - **The tipped balls are counted one-sidedly.** A tipped pass that *was*
+      intercepted is in the play text; one that fell incomplete mostly isn't,
+      so the defense is charged for the breaks it got and the offense is never
+      credited for the ones it got. That asymmetry is survivable in
+      `luck_adjusted_game_control`, where a missing play would shift a curve
+      slightly, and it is not survivable here: a dropped tipped ball is worth
+      `0.25` of a full turnover swing to the offense, and none of that is in
+      this total. Fumbles have no such gap -- both branches are in the text.
+      A caller who wants the clean half of the number passes
+      `retained={**DEFAULT_RETAINED, LuckKind.TIPPED_INTERCEPTION: 1.0}`,
+      which zeroes every tipped interception's contribution.
+    - **The two branches are read at different moments.** `realized` is the
+      next snap, after the clock ran and any points went up; the
+      counterfactual is built from the snap itself (see `_counterfactual`).
+      A play's worth of clock is small against a change of possession, but it
+      is a floor under how precise this can be.
+    """
+    return lucky_wp_from_states(
+        model, list(iter_states(game)), find_lucky_plays(game.plays, retained=retained)
+    )
+
+
+def lucky_wp_from_states(
+    model: WinProbabilityModel,
+    states: Sequence[GameState],
+    lucky_plays: Iterable[LuckyPlay],
+) -> LuckyWP:
+    """
+    `lucky_wp` for states and lucky plays a caller already has.
+
+    The backend path, for the same reason `adjusted_curve_from_states` is:
+    two `predict` calls for the whole game rather than one per lucky play.
+
+    Counts the same plays `adjusted_curve_from_states` adjusts -- a bounce on
+    the last snap of the game has no next snap to price it against, so it is
+    left out of both.
+    """
+    realized = curve_from_states(model, states)
+    swings = [
+        LuckySwing(
+            play_id=branch.lucky.play_id,
+            play_number=branch.lucky.play_number,
+            kind=branch.lucky.kind,
+            retained=branch.lucky.retained,
+            realized=realized[branch.index + 1].home_win_probability,
+            counterfactual=branch.counterfactual,
+        )
+        for branch in _priced_branches(model, states, realized, lucky_plays)
+    ]
+    deltas = [swing.home_delta for swing in swings]
+    return LuckyWP(
+        home=float(sum(delta for delta in deltas if delta > 0.0)),
+        away=float(-sum(delta for delta in deltas if delta < 0.0)),
+        swings=swings,
+    )
+
+
+class _Branch(NamedTuple):
+    """A lucky play that lands on the curve, and what the other branch is worth."""
+
+    index: int
+    """
+    Where the play sits in both `states` and the realized curve.
+
+    One index for the two because `curve_from_states` is one point per state,
+    in order -- the curve carries no filtering of its own.
+    """
+
+    lucky: LuckyPlay
+    counterfactual: float
+    """The model's home win probability for the branch that didn't happen."""
+
+
+def _priced_branches(
+    model: WinProbabilityModel,
+    states: Sequence[GameState],
+    realized: Sequence[CurvePoint],
+    lucky_plays: Iterable[LuckyPlay],
+) -> list[_Branch]:
+    """
+    The lucky plays that can actually move a number, with the branch that
+    didn't happen priced -- in one `predict` for the whole game rather than
+    one per play.
+
+    Both metrics in this module go through here, which is what keeps them
+    talking about the same football: `luck_adjusted_curve` and `lucky_wp` are
+    free to disagree about what a bounce was worth, but not about which plays
+    were bounces or what the other branch looked like.
+
+    A lucky play qualifies only if it is a snap on the curve *and* something
+    comes after it. `[:-1]` is the second half of that: the last snap of a
+    game has no later probability to move and no next snap to read "what
+    happened" off. The first half is the dictionary lookup -- `find_lucky_plays`
+    reads every play, including the kickoffs and the clock stoppages
+    `iter_states` drops, and those never appear in `realized` to be found.
+    """
+    if len(realized) < 2:
+        return []
+    by_play_id = {lucky.play_id: lucky for lucky in lucky_plays}
+    applied = [
+        (index, by_play_id[point.play_id])
+        for index, point in enumerate(realized[:-1])
+        if point.play_id in by_play_id
+    ]
+    if not applied:
+        return []
+    prices = model.predict(
+        [
+            _counterfactual(states[index], lucky.changed_possession)
+            for index, lucky in applied
+        ]
+    )
+    return [
+        _Branch(index=index, lucky=lucky, counterfactual=float(price))
+        for (index, lucky), price in zip(applied, prices)
+    ]
 
 
 # Words that say the ball was in the air off something other than the

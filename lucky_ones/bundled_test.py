@@ -17,6 +17,7 @@ from .conftest import make_play, make_state, make_table
 from .curve import win_probability_curve
 from .features import FEATURE_NAMES
 from .game import GamePlays
+from .luck import LuckKind
 from .state import iter_states
 
 
@@ -117,6 +118,84 @@ def test_the_curve_comes_out_of_a_bundled_model() -> None:
     assert len(points) == len(game.plays)
     assert control is not None
     assert control.home + control.away == pytest.approx(1.0)
+
+
+def _a_game_with_a_bounce() -> GamePlays:
+    """
+    Four consecutive snaps of a scoreless first quarter, the home team putting
+    the ball on the ground on the second one.
+
+    Consecutive and scoreless on purpose: the realized branch is read off the
+    next snap and the counterfactual off this one, so a fixture whose score
+    moves between the two would be measuring the points rather than the
+    bounce. Here the only thing that differs between the branches is who has
+    the ball, which is the thing being priced.
+    """
+    return _game(
+        [
+            make_play(
+                play_id=f"p{number}",
+                play_number=number,
+                clock_seconds=clock,
+                yardline=yardline,
+                offense_team_id=offense,
+                defense_team_id="away" if offense == "home" else "home",
+                text=text,
+                is_turnover=text is not None,
+            )
+            for number, (clock, offense, yardline, text) in enumerate(
+                [
+                    (900, "home", 25, None),
+                    (870, "home", 30, "Barkley rush. FUMBLE, recovered by DAL."),
+                    (840, "away", 70, None),
+                    (810, "away", 72, None),
+                ],
+                start=1,
+            )
+        ]
+    )
+
+
+def test_the_luck_numbers_come_out_of_a_bundled_model() -> None:
+    """
+    The three calls a consumer makes for the pair of luck numbers, against a
+    real shipped fit rather than a stand-in -- `luck_test` covers the
+    arithmetic, this covers the wiring reaching actual coefficients.
+    """
+    game = _a_game_with_a_bounce()
+
+    adjusted = MODELS.NFL.luck_adjusted_curve(game)
+    earned = MODELS.NFL.luck_adjusted_game_control(game)
+    breaks = MODELS.NFL.lucky_wp(game)
+
+    assert [lucky.kind for lucky in adjusted.lucky_plays] == [LuckKind.FUMBLE_LOST]
+    assert adjusted.realized == MODELS.NFL.curve(game)
+    assert adjusted.points != adjusted.realized
+    assert earned is not None
+    assert earned.home + earned.away == pytest.approx(1.0)
+    # Dallas came up with it, so the break is on their side of the ledger --
+    # and it is a total of win probability, not a share of the game.
+    assert breaks.home == 0.0
+    assert 0.0 < breaks.away < 1.0
+    assert breaks.net == pytest.approx(-breaks.away)
+    assert [swing.play_id for swing in breaks.swings] == [
+        lucky.play_id for lucky in adjusted.lucky_plays
+    ]
+
+
+def test_the_luck_numbers_take_their_weights_at_the_call_site() -> None:
+    """`retained=1.0` is the identity, through the bundled wrapper too."""
+    game = _a_game_with_a_bounce()
+    everything = {kind: 1.0 for kind in LuckKind}
+
+    # `approx` rather than `==`: the identity is exact in the arithmetic, and
+    # the adjusted curve still makes a round trip through log-odds to get
+    # there, which costs a couple of bits on the way back.
+    assert [
+        point.home_win_probability
+        for point in MODELS.NFL.luck_adjusted_curve(game, retained=everything).points
+    ] == pytest.approx([point.home_win_probability for point in MODELS.NFL.curve(game)])
+    assert MODELS.NFL.lucky_wp(game, retained=everything).away == pytest.approx(0.0)
 
 
 def test_a_bundled_model_is_a_win_probability_model() -> None:

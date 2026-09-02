@@ -44,7 +44,11 @@ from lucky_ones import MODELS, GamePlays, group_by_game
 from lucky_ones.arrow import DatasetPlaySource, StorePlaySource
 from lucky_ones.bundled import RELEASE_DIR
 from lucky_ones.curve import game_control
-from lucky_ones.luck import adjusted_curve_from_states, find_lucky_plays
+from lucky_ones.luck import (
+    adjusted_curve_from_states,
+    find_lucky_plays,
+    lucky_wp_from_states,
+)
 from lucky_ones.metrics import brier_score, log_loss
 from lucky_ones.model import LogisticWinProbability, WinProbabilityModel
 from lucky_ones.plays import Play, PlaySource
@@ -226,10 +230,11 @@ def curve(
     get; `--model PATH` reads a release from a file instead, for checking one
     before it's committed.
 
-    Both control numbers come out, plus the plays between them: `lucky_plays`
-    is every fumble and tipped interception the game turned on, and each point
-    carries its luck-adjusted probability alongside the real one. See
-    `lucky_ones.luck`.
+    Both control numbers come out, plus `lucky_wp` -- how much win probability
+    the bounces handed each team -- and the plays behind them: `lucky_plays` is
+    every fumble and tipped interception the game turned on, priced both ways,
+    and each point carries its luck-adjusted probability alongside the real
+    one. See `lucky_ones.luck`.
 
     `game_id` is annotated `str | int` and coerced because fire converts an
     all-digit argument to an int regardless of the annotation, and every ESPN
@@ -251,7 +256,12 @@ def curve(
     (game,) = games
 
     states = list(iter_states(game))
-    adjusted = adjusted_curve_from_states(fit, states, find_lucky_plays(game.plays))
+    lucky = find_lucky_plays(game.plays)
+    # Both walks price the realized curve again. That is one extra matrix
+    # multiply on one game, which is nothing here and is why neither function
+    # takes the other's output -- see `lucky_ones.luck`.
+    adjusted = adjusted_curve_from_states(fit, states, lucky)
+    breaks = lucky_wp_from_states(fit, states, lucky)
     control = game_control(adjusted.realized)
     earned = game_control(adjusted.points)
     print(
@@ -264,7 +274,23 @@ def curve(
                 "luck_adjusted_game_control": (
                     None if earned is None else earned._asdict()
                 ),
-                "lucky_plays": [lucky._asdict() for lucky in adjusted.lucky_plays],
+                "lucky_wp": {
+                    "home": breaks.home,
+                    "away": breaks.away,
+                    "net": breaks.net,
+                },
+                # One list, zipped: both walks go through `_priced_branches`,
+                # so they report the same plays in the same order.
+                "lucky_plays": [
+                    {
+                        **lucky._asdict(),
+                        "realized": swing.realized,
+                        "counterfactual": swing.counterfactual,
+                        "expected": swing.expected,
+                        "home_delta": swing.home_delta,
+                    }
+                    for lucky, swing in zip(adjusted.lucky_plays, breaks.swings)
+                ],
                 "points": [
                     {
                         **point._asdict(),

@@ -14,6 +14,7 @@ from lucky_ones import MODELS, group_by_game
 points = MODELS.NCAAFB.curve(game)  # the graph
 control = MODELS.NCAAFB.game_control(game)  # the number under it
 earned = MODELS.NCAAFB.luck_adjusted_game_control(game)  # minus the bounces
+breaks = MODELS.NCAAFB.lucky_wp(game)  # and what the bounces were worth
 ```
 
 The fits ship inside the package, so that is the whole setup: no bucket, no
@@ -34,7 +35,7 @@ The pipeline, in the order the modules run:
 | `model` | `WinProbabilityModel`, and a logistic baseline |
 | `metrics` | scoring the result |
 | `curve` | a game's win probability over time, and game control |
-| `luck` | the same, with the coin flips split evenly |
+| `luck` | the coin flips: the curve without them, and what they were worth |
 | `release` | the artifact a fit is stored as |
 | `bundled` | the fits that ship with the package, and `MODELS` |
 
@@ -133,8 +134,11 @@ make curve ARGS="401671789 --week 3"
 {"game_id": "401671789", "home_team_id": "...", "away_team_id": "...",
  "game_control": {"home": 0.804, "away": 0.196, "seconds": 3600},
  "luck_adjusted_game_control": {"home": 0.731, "away": 0.269, "seconds": 3600},
+ "lucky_wp": {"home": 0.041, "away": 0.187, "net": -0.146},
  "lucky_plays": [{"play_id": "...", "kind": "fumble_lost", "retained": 0.5,
-                  "changed_possession": true}, ...],
+                  "changed_possession": true, "realized": 0.62,
+                  "counterfactual": 0.81, "expected": 0.715,
+                  "home_delta": -0.095}, ...],
  "points": [{"period": 1, "clock_seconds": 900, "home_score": 0,
              "home_win_probability": 0.464,
              "luck_adjusted_win_probability": 0.464}, ...]}
@@ -162,6 +166,7 @@ from lucky_ones import MODELS, group_by_game
 points = MODELS.NFL.curve(game)  # one CurvePoint per snap
 control = MODELS.NFL.game_control(game)  # who controlled the game
 earned = MODELS.NFL.luck_adjusted_game_control(game)  # who earned it
+breaks = MODELS.NFL.lucky_wp(game)  # what the bounces were worth
 MODELS.NFL.metrics.brier_score  # how the fit scored on a holdout
 MODELS.NFL.trained_on.seasons  # what it was fit on
 ```
@@ -343,6 +348,86 @@ play gained before the ball came loose and the yards a return added after.
 Against the thing being measured — who has the ball — that's small. Twenty-five
 yards of field position is worth a few points of win probability; the
 possession itself is worth several times that.
+
+## Lucky WP
+
+The other thing worth saying about a bounce. `luck_adjusted_game_control`
+rewrites the game without it; `lucky_wp` just adds up what it was worth:
+**how much win probability did the bounces hand each team?**
+
+```python
+breaks = MODELS.NFL.lucky_wp(game)
+breaks.home  # 0.04 -- win probability the bounces gave the home team
+breaks.away  # 0.19 -- and the away team
+breaks.net  # -0.15
+```
+
+For each lucky play there are two branches and a gap between them. The part of
+that gap the *bounce* decided, rather than the team, is `(1 − retained)` of it:
+
+```
+home_delta = realized − expected
+           = realized − (retained × realized + (1 − retained) × counterfactual)
+           = (1 − retained) × (realized − counterfactual)
+```
+
+A coin flip hands out half the gap between its two branches. A one-in-four
+bounce — a tipped ball that got caught — hands out three quarters of it. Those
+deltas total per team, and `swings` carries each one with both branches on it,
+so a table of "the plays this game turned on" is a list comprehension.
+
+### Reading it next to the other number
+
+|  | `luck_adjusted_game_control` | `lucky_wp` |
+| --- | --- | --- |
+| what it does | rewrites the game | totals the breaks |
+| units | share of the game, sums to 1 | win probability, sums to nothing |
+| a bounce counts | once, and every point after it | once |
+| when it happened | matters — it's time-weighted | doesn't |
+| answers | who was ahead of this game on merit | who got the breaks, and how big |
+
+The middle two rows are the substance. Control is an average over the clock, so
+a first-quarter fumble is discounted for the rest of the game and a bounce with
+a minute left barely moves it. `lucky_wp` is a sum over plays, so the late
+bounce that decided the game counts for exactly what it swung, and counts once.
+Neither is more correct — they're answers to different questions, and a team
+can be near the top of one and the middle of the other.
+
+`home` and `away` are kept as two non-negative totals rather than netted
+because "both teams got a big break" and "neither got one" are different games
+that `net` alone reports identically.
+
+### The one thing to watch
+
+**The tipped balls are counted one-sidedly, and here that costs more than it
+does next door.** A tipped pass that *was* intercepted is in ESPN's play text;
+one that bounced off a helmet and fell incomplete mostly isn't. So a defense is
+charged for the tips that went its way, and an offense is never credited for
+the ones that didn't — and a dropped tip is worth 0.25 of a full turnover swing,
+which is not a rounding error.
+
+In `luck_adjusted_game_control` a missing play shifts a curve a little. In a
+running total it's a one-way leak. Fumbles have no such gap: both branches are
+in the text, so `fumble_lost` and `fumble_kept` are both found and both
+charged.
+
+If you want only the half with both branches observed, turn the tipped balls
+off — `retained=1.0` zeroes a kind's contribution without removing it from the
+report:
+
+```python
+from lucky_ones.luck import DEFAULT_RETAINED, LuckKind
+
+MODELS.NFL.lucky_wp(
+    game, retained={**DEFAULT_RETAINED, LuckKind.TIPPED_INTERCEPTION: 1.0}
+)
+```
+
+One more approximation worth knowing, shared with the number next door: the
+realized branch is read off the *next* snap, after the clock ran and any points
+went up, while the counterfactual is built from the snap itself. A play's worth
+of clock is small against a change of possession, but it's the floor under how
+precise either number can be.
 
 ## Development
 
