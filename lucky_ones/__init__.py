@@ -9,11 +9,17 @@ The whole top-level API is `MODELS` and what it takes:
     points = MODELS.NCAAFB.curve(game)          # the graph
     control = MODELS.NCAAFB.game_control(game)  # the number under it
 
-`game_control` says who was ahead of the game; its neighbour
-`MODELS.NCAAFB.luck_adjusted_game_control(game)` says how much of that they
-earned, with the fumbles and the tipped balls split evenly rather than credited
-to whoever they fell to. See `lucky_ones.luck` -- which, given the name of this
-package, is arguably the point of it.
+`game_control` says who was ahead of the game. Two neighbours say what the
+bounces had to do with it, and -- given the name of this package -- are
+arguably the point of it:
+
+    earned = MODELS.NCAAFB.luck_adjusted_game_control(game)
+    breaks = MODELS.NCAAFB.lucky_wp(game)
+
+The first is the same share of the game with the fumbles and the tipped balls
+split evenly rather than credited to whoever they fell to. The second is the
+win probability those bounces handed each team, totalled -- the size of the
+breaks rather than the game without them. See `lucky_ones.luck`.
 
 `MODELS.NFL` and `MODELS.NCAAFB` are fitted releases that ship inside the
 wheel, so scoring a game needs no bucket, no credentials and no fitting
@@ -38,7 +44,7 @@ The pipeline, in the order the modules run:
     model     `WinProbabilityModel`, and a logistic baseline
     metrics   scoring the result
     curve     a game's win probability over time, and game control
-    luck      the same, with the coin flips split evenly
+    luck      the coin flips: the curve without them, and what they were worth
     release   the artifact a fit is stored as
     bundled   the fits that ship with the package, and `MODELS`
 

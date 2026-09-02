@@ -106,3 +106,31 @@ def test_curve_prints_the_luck_adjusted_control_too(tmp_path, tree, capsys):
     assert earned["seconds"] == payload["game_control"]["seconds"]
     # Bounces went someone's way, so the two numbers are not the same one
     assert earned["home"] != pytest.approx(payload["game_control"]["home"])
+
+
+def test_curve_prints_what_the_bounces_were_worth(tmp_path, tree, capsys):
+    """
+    The other luck number, and the per-play arithmetic under it: each lucky
+    play carries both branches and the share of the gap the bounce decided.
+    """
+    out = tmp_path / "nfl.json"
+    train(league="nfl", seasons="2025", root=str(tree), out=str(out))
+
+    curve("g100", league="nfl", season=2025, week=1, model=str(out), root=str(tree))
+
+    payload = json.loads(capsys.readouterr().out)
+    breaks = payload["lucky_wp"]
+    assert breaks["home"] >= 0.0 and breaks["away"] >= 0.0
+    assert breaks["net"] == pytest.approx(breaks["home"] - breaks["away"])
+    # Not a share of the game -- a total of win probability. See `lucky_ones.luck`.
+    assert breaks["home"] + breaks["away"] != pytest.approx(1.0)
+
+    (lucky, *_) = payload["lucky_plays"]
+    assert lucky["expected"] == pytest.approx(
+        lucky["retained"] * lucky["realized"]
+        + (1 - lucky["retained"]) * lucky["counterfactual"]
+    )
+    assert lucky["home_delta"] == pytest.approx(lucky["realized"] - lucky["expected"])
+    assert sum(
+        abs(play["home_delta"]) for play in payload["lucky_plays"]
+    ) == pytest.approx(breaks["home"] + breaks["away"])

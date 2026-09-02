@@ -13,6 +13,8 @@ from .luck import (
     find_lucky_plays,
     luck_adjusted_curve,
     luck_adjusted_game_control,
+    lucky_wp,
+    lucky_wp_from_states,
 )
 from .state import iter_states
 
@@ -428,3 +430,210 @@ def test_the_shipped_weights_cover_every_kind():
     """
     assert set(DEFAULT_RETAINED) == set(LuckKind)
     assert all(0.0 <= weight <= 1.0 for weight in DEFAULT_RETAINED.values())
+
+
+# --- Lucky WP ----------------------------------------------------------
+
+
+def test_a_coin_flip_hands_out_half_of_what_it_swung():
+    """
+    Dallas comes up with the ball and the model drops Philadelphia from 0.5 to
+    0.2. Had Philadelphia recovered it, the fit says 0.6. Half of that gap is
+    the recovery being a coin flip, and half of it is Dallas playing the down.
+    """
+    game = _snaps(
+        (None, False),
+        ("Barkley rush for 3 yards. FUMBLE, recovered by DAL.", True),
+        (None, False),
+    )
+
+    breaks = lucky_wp(_FixedModel([0.5, 0.5, 0.2], counterfactual=0.6), game)
+
+    (swing,) = breaks.swings
+    assert swing.kind is LuckKind.FUMBLE_LOST
+    assert (swing.realized, swing.counterfactual) == (0.2, 0.6)
+    # 0.5 * 0.2 + 0.5 * 0.6, and the realized 0.2 is 0.2 below it.
+    assert swing.expected == pytest.approx(0.4)
+    assert swing.home_delta == pytest.approx(-0.2)
+    assert (breaks.home, breaks.away) == pytest.approx((0.0, 0.2))
+    assert breaks.net == pytest.approx(-0.2)
+
+
+def test_a_tipped_ball_hands_out_three_quarters_of_it():
+    """
+    The same swing off a less likely bounce is more of a gift. Three passes in
+    four come off a helmet and fall, so the one that got caught was mostly not
+    the defense's doing.
+    """
+    game = _snaps(
+        (None, False),
+        ("Pass intercepted by Slay at PHI 40 (tipped by Sweat)", True),
+        (None, False),
+    )
+
+    breaks = lucky_wp(_FixedModel([0.5, 0.5, 0.2], counterfactual=0.6), game)
+
+    (swing,) = breaks.swings
+    assert swing.retained == 0.25
+    assert swing.expected == pytest.approx(0.5)
+    assert swing.home_delta == pytest.approx(-0.3)
+    assert (breaks.home, breaks.away) == pytest.approx((0.0, 0.3))
+
+
+def test_both_teams_can_get_a_break_in_the_same_game():
+    """
+    Why the two sides are totalled separately rather than netted. This game
+    swung twice, hard, in opposite directions -- `net` alone would report it as
+    the same game as one where nothing bounced at all.
+    """
+    game = _snaps(
+        ("Prescott rush. FUMBLE, recovered by PHI.", True),
+        (None, False),
+        ("Barkley rush. FUMBLE, recovered by DAL.", True),
+        (None, False),
+    )
+
+    breaks = lucky_wp(_FixedModel([0.5, 0.9, 0.9, 0.1], counterfactual=0.5), game)
+
+    assert (breaks.home, breaks.away) == pytest.approx((0.2, 0.2))
+    assert breaks.net == pytest.approx(0.0)
+    # And the trap this type exists to avoid: it is not a share of anything.
+    assert breaks.home + breaks.away != pytest.approx(1.0)
+
+
+def test_a_game_with_no_bounces_in_it_hands_out_nothing():
+    game = _snaps((None, False), ("Barkley rush for 3 yards", False), (None, False))
+
+    breaks = lucky_wp(_FixedModel([0.4, 0.6, 0.7]), game)
+
+    assert breaks.swings == []
+    assert (breaks.home, breaks.away, breaks.net) == (0.0, 0.0, 0.0)
+
+
+def test_retaining_everything_hands_out_nothing_either():
+    """
+    The same identity setting the adjusted curve has, on the other number: a
+    bounce that was always going to happen that way was not a bounce. The
+    plays are still reported -- only their share of the swing is zero.
+    """
+    game = _snaps(
+        ("FUMBLE, recovered by DAL.", True),
+        ("Pass intercepted by Slay (tipped by Sweat)", True),
+        (None, False),
+    )
+    everything = {kind: 1.0 for kind in LuckKind}
+
+    breaks = lucky_wp(
+        _FixedModel([0.4, 0.55, 0.7], counterfactual=0.01), game, retained=everything
+    )
+
+    assert len(breaks.swings) == 2
+    assert all(swing.home_delta == pytest.approx(0.0) for swing in breaks.swings)
+    assert (breaks.home, breaks.away) == pytest.approx((0.0, 0.0))
+
+
+def test_the_tipped_balls_can_be_left_out_of_the_total():
+    """
+    The escape hatch for the one-sided half of this number: a tipped pass that
+    was intercepted is in the play text and one that fell incomplete is not,
+    so a caller who wants only the part with both branches observed turns the
+    tipped balls off. `retained=1.0` is how, and the fumbles are untouched.
+    """
+    game = _snaps(
+        ("FUMBLE, recovered by DAL.", True),
+        ("Pass intercepted by Slay (tipped by Sweat)", True),
+        (None, False),
+    )
+    fumbles_only = {**DEFAULT_RETAINED, LuckKind.TIPPED_INTERCEPTION: 1.0}
+
+    both = lucky_wp(_FixedModel([0.5, 0.3, 0.1], counterfactual=0.7), game)
+    fumbles = lucky_wp(
+        _FixedModel([0.5, 0.3, 0.1], counterfactual=0.7), game, retained=fumbles_only
+    )
+
+    assert [swing.kind for swing in fumbles.swings] == [
+        LuckKind.FUMBLE_LOST,
+        LuckKind.TIPPED_INTERCEPTION,
+    ]
+    assert fumbles.away == pytest.approx(0.2)  # 0.5 * (0.3 - 0.7), and nothing else
+    assert both.away > fumbles.away
+
+
+def test_a_bounce_on_the_last_snap_has_nothing_to_price_it_against():
+    """
+    The same play the adjusted curve drops, dropped for the same reason: the
+    branch that happened is read off the *next* snap, and there isn't one.
+    """
+    game = _snaps((None, False), ("FUMBLE, recovered by DAL.", True))
+    model = _FixedModel([0.4, 0.6], counterfactual=0.9)
+
+    breaks = lucky_wp(model, game)
+
+    assert breaks.swings == []
+    assert (breaks.home, breaks.away) == (0.0, 0.0)
+
+
+def test_both_numbers_are_talking_about_the_same_plays():
+    """
+    The contract `_priced_branches` exists for. The two metrics are free to
+    disagree about what a bounce was worth; a game where they disagree about
+    which plays bounced is a bug in one of them.
+    """
+    game = _snaps(
+        ("FUMBLE, recovered by DAL.", True),
+        (None, False),
+        ("Pass intercepted by Slay (tipped by Sweat)", True),
+        ("FUMBLE, recovered by PHI.", False),
+    )
+    probabilities = [0.5, 0.4, 0.4, 0.8]
+
+    adjusted = luck_adjusted_curve(_FixedModel(probabilities, 0.3), game)
+    breaks = lucky_wp(_FixedModel(probabilities, 0.3), game)
+
+    assert [swing.play_id for swing in breaks.swings] == [
+        lucky.play_id for lucky in adjusted.lucky_plays
+    ]
+
+
+def test_states_a_caller_already_has_give_the_same_total():
+    """The backend path, for the same reason `adjusted_curve_from_states` is."""
+    game = _snaps(
+        (None, False),
+        ("FUMBLE, recovered by DAL.", True),
+        (None, False),
+    )
+    probabilities = [0.5, 0.5, 0.8]
+
+    walked = lucky_wp(_FixedModel(probabilities, 0.2), game)
+    from_states = lucky_wp_from_states(
+        _FixedModel(probabilities, 0.2),
+        list(iter_states(game)),
+        find_lucky_plays(game.plays),
+    )
+
+    assert walked == from_states
+
+
+def test_the_total_is_win_probability_not_a_share_of_the_clock():
+    """
+    A bounce late in a close game is worth more than the same bounce in the
+    first quarter, and this number says so directly -- there is no weighting
+    by how long the situation stood, because nothing here is an average.
+    """
+    early = _snaps(
+        ("FUMBLE, recovered by DAL.", True),
+        (None, False),
+        (None, False),
+    )
+    late = _snaps(
+        (None, False),
+        (None, False),
+        ("FUMBLE, recovered by DAL.", True),
+        (None, False),
+    )
+
+    # Same shape of swing in both, so the only difference is when it happened
+    # -- and it isn't a difference this number makes.
+    assert lucky_wp(_FixedModel([0.5, 0.2, 0.2], 0.6), early).away == pytest.approx(
+        lucky_wp(_FixedModel([0.5, 0.5, 0.5, 0.2], 0.6), late).away
+    )

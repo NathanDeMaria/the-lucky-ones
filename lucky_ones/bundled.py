@@ -6,6 +6,7 @@ The fits that ship inside the package, and the `MODELS` that reaches them.
     points = MODELS.NCAAFB.curve(game)
     control = MODELS.NCAAFB.game_control(game)               # what happened
     earned = MODELS.NCAAFB.luck_adjusted_game_control(game)  # on purpose
+    breaks = MODELS.NCAAFB.lucky_wp(game)                    # and the bounces
 
 The releases in `lucky_ones/releases/` are data files inside the wheel, not
 something a consumer fetches. That is a deliberate trade: a fit is ~1.3KB of
@@ -43,8 +44,10 @@ from .luck import (
     DEFAULT_RETAINED,
     AdjustedCurve,
     LuckKind,
+    LuckyWP,
     luck_adjusted_curve,
     luck_adjusted_game_control,
+    lucky_wp,
 )
 from .model import LogisticWinProbability
 from .release import Metrics, TrainedOn, WinProbabilityRelease
@@ -177,6 +180,24 @@ class BundledModel:
         None on.
         """
         return luck_adjusted_game_control(self.model, game, retained=retained)
+
+    def lucky_wp(
+        self,
+        game: GamePlays,
+        *,
+        retained: Mapping[LuckKind, float] = DEFAULT_RETAINED,
+    ) -> LuckyWP:
+        """
+        Win probability the bounces handed each team in `game`, and the plays
+        it came from.
+
+        The other half of the pair with `luck_adjusted_game_control`: that one
+        says what the game looks like without the breaks, this one says how
+        big they were. Totals of win probability, so unlike `GameControl` the
+        two sides do not sum to 1. See `lucky_ones.luck.lucky_wp`, including
+        what the tipped-ball half of the number can and cannot see.
+        """
+        return lucky_wp(self.model, game, retained=retained)
 
 
 @dataclass(frozen=True)
