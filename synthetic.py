@@ -24,11 +24,23 @@ PERIOD_SECONDS = 15 * 60
 SNAP_SECONDS = 30
 
 
+# Roughly a fumble every other drive, which is more than football has -- a
+# fixture with one bounce in it exercises `lucky_ones.luck` about as well as a
+# fixture with none. Both branches appear, because the module reads
+# `is_turnover` to tell them apart and a tree with only lost fumbles in it
+# would never exercise the other one.
+FUMBLE_CHANCE = 0.02
+
+
 def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
     """
     One game: four periods of alternating drives, with the stronger team more
     likely to score. Ends with an administrative play carrying the final
     score and no possession, the way a real game does.
+
+    A few plays carry fumble text, so `make curve` on this tree has something
+    for the luck adjustment to find. The text is the shape ESPN writes, not a
+    quote of it -- like everything else here, it's the shape that's real.
     """
     rng = random.Random(seed)
     strength = rng.gauss(0, 10)
@@ -48,6 +60,9 @@ def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
                     home_score += points
                 else:
                     away_score += points
+            fumbled = rng.random() < FUMBLE_CHANCE
+            lost = fumbled and rng.random() < 0.5
+            recovered = away if offense == home else home
             rows.append(
                 make_play(
                     game_id=game_id,
@@ -63,6 +78,13 @@ def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
                     distance=rng.randint(1, 15),
                     yardline=rng.randint(1, 99),
                     drive_number=1 + play_number // 6,
+                    text=(
+                        "Rush for 3 yards. FUMBLE, recovered by "
+                        f"{recovered if lost else offense}."
+                        if fumbled
+                        else "Rush for 3 yards"
+                    ),
+                    is_turnover=lost,
                 )
             )
     if home_score == away_score:
