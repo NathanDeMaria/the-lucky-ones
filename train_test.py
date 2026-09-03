@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from lucky_ones.luck import DEFENDED_MARKERS
 from lucky_ones.release import WinProbabilityRelease
 from synthetic import write_tree
 from train import (
@@ -107,7 +108,8 @@ def test_curve_prints_the_luck_adjusted_control_too(tmp_path, tree, capsys):
     assert {lucky["kind"] for lucky in payload["lucky_plays"]} <= {
         "fumble_lost",
         "fumble_kept",
-        "tipped_interception",
+        "pass_defended_interception",
+        "pass_defended_incomplete",
     }
     earned = payload["luck_adjusted_game_control"]
     assert earned["home"] + earned["away"] == pytest.approx(1.0)
@@ -168,7 +170,7 @@ def test_rates_reports_coverage_next_to_the_share_that_depends_on_it(tree, capsy
     `interception_share` is only ever as good as `coverage`, so they are
     reported together. On real data the second moves by a factor of four
     between seasons while the interception rate holds still, which is the
-    whole reason `DEFAULT_RETAINED[TIPPED_INTERCEPTION]` is a guess.
+    whole reason the NCAAFB half of the pass pair needs a per-game gate.
     """
     rates(league="nfl", seasons="2025", root=str(tree))
 
@@ -194,7 +196,19 @@ def test_rates_splits_the_denominator_by_the_phrase_that_caught_it(tree, capsys)
 
     defended = json.loads(capsys.readouterr().out)["defended_passes"]
     assert defended["by_family"] == {"broken_up": defended["defended"]}
-    assert set(defended["by_family"]) <= set(DEFENDED_FAMILIES)
+    assert set(defended["by_family"]) <= {*DEFENDED_FAMILIES, "defensed_syntax"}
+
+
+def test_the_feed_profiler_covers_what_the_classifier_reads():
+    """
+    `rates` splits the denominator by family for diagnostics while the total
+    comes from `is_defended_pass`. If a marker were added to the classifier
+    and not to the families, the split would stop summing to the total and
+    quietly under-report whichever family it belonged to.
+    """
+    covered = {marker for markers in DEFENDED_FAMILIES.values() for marker in markers}
+
+    assert set(DEFENDED_MARKERS) <= covered
 
 
 def test_rates_implies_the_share_a_complete_feed_would_have_given(tree, capsys):

@@ -1,3 +1,5 @@
+from collections import Counter
+
 import numpy as np
 import pytest
 
@@ -15,6 +17,7 @@ from .luck import (
     luck_adjusted_game_control,
     lucky_wp,
     lucky_wp_from_states,
+    records_defended_passes,
 )
 from .state import iter_states
 
@@ -38,7 +41,12 @@ class _FixedModel:
         if self.spent:
             return np.full(len(states), self._counterfactual, dtype=float)
         self.spent = True
-        return np.array(self._probabilities[: len(states)], dtype=float)
+        given = self._probabilities[: len(states)]
+        # A gate-passing game needs a dozen incompletions in it, and a test
+        # that cared about each one's probability would be a test about
+        # padding. The tail holds the last value it was given.
+        tail = [given[-1]] * (len(states) - len(given))
+        return np.array(given + tail, dtype=float)
 
 
 def _game(rows) -> GamePlays:
@@ -74,6 +82,22 @@ def _snaps(*texts_and_turnovers) -> GamePlays:
     )
 
 
+def _pass_game(*specs, incompletions: int = 12) -> GamePlays:
+    """
+    A game with enough incompletions for `records_defended_passes` to have an
+    opinion about its feed, padded with passes nobody got near.
+
+    The padding is deliberately undefended, so whether the gate opens is
+    decided by the plays the test actually wrote.
+    """
+    rows = list(specs)
+    while sum(1 for text, _ in rows if text and "incomplete" in text.lower()) < (
+        incompletions
+    ):
+        rows.append(("Pass incomplete short right to Smith.", False))
+    return _snaps(*rows)
+
+
 # --- Finding them ------------------------------------------------------
 
 
@@ -100,23 +124,85 @@ def test_a_recovered_fumble_is_the_offense_getting_lucky():
     assert lucky.changed_possession is False
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "Pass intercepted by Slay at PHI 40 (tipped by Sweat)",
-        "Pass INTERCEPTED, ball deflected at the line",
-        "Pass batted by Carter, intercepted by Blankenship",
-    ],
-)
-def test_a_tipped_interception_keeps_a_quarter_of_its_swing(text):
-    (lucky,) = find_lucky_plays(_snaps((text, True)).plays)
+def test_an_interception_is_a_ball_a_defender_came_down_with():
+    """
+    Every interception, not only the deflected ones -- the manner isn't in
+    the text and the population that is measurable is "a defender reached
+    it". Its 0.20 is the measured share of those that end up caught.
+    """
+    game = _pass_game(
+        ("Pass intercepted by Slay at PHI 40", True),
+        ("Pass incomplete deep left to Brown, broken up by Slay", False),
+        ("Pass incomplete short right to Smith, broken up by Bates", False),
+    )
 
-    assert lucky.kind is LuckKind.TIPPED_INTERCEPTION
-    assert lucky.retained == 0.25
+    kinds = {lucky.kind for lucky in find_lucky_plays(game.plays)}
+
+    assert kinds == {
+        LuckKind.PASS_DEFENDED_INTERCEPTION,
+        LuckKind.PASS_DEFENDED_INCOMPLETE,
+    }
+    (pick,) = [
+        lucky
+        for lucky in find_lucky_plays(game.plays)
+        if lucky.kind is LuckKind.PASS_DEFENDED_INTERCEPTION
+    ]
+    assert pick.retained == 0.20
+    assert pick.changed_possession is True
 
 
-def test_an_untipped_interception_is_a_decision_not_a_bounce():
-    game = _snaps(("Pass intercepted by Slay at PHI 40", True))
+def test_a_broken_up_pass_is_the_interception_that_wasnt():
+    """The other side of the same coin, and the reason the first can be used."""
+    game = _pass_game(
+        ("Pass incomplete deep left to Brown, broken up by Slay", False),
+        ("Pass incomplete short right to Smith, broken up by Bates", False),
+    )
+
+    lucky = find_lucky_plays(game.plays)
+
+    assert [play.kind for play in lucky] == [LuckKind.PASS_DEFENDED_INCOMPLETE] * 2
+    assert all(play.retained == 0.80 for play in lucky)
+    assert all(play.changed_possession is False for play in lucky)
+
+
+def test_the_nfl_writes_the_defender_in_punctuation():
+    """
+    Gamebook text names the defender in a trailing parenthetical rather than
+    in words. On an incompletion there is nobody to tackle, so that credit is
+    unambiguous -- which is the only case this reads it in.
+    """
+    game = _pass_game(
+        (
+            "(12:11) (Shotgun) J.Goff pass incomplete deep left to C.Kupp (J.Ramsey).",
+            False,
+        ),
+        ("(9:02) T.Brady pass incomplete short right to J.White (D.White).", False),
+    )
+
+    lucky = find_lucky_plays(game.plays)
+
+    assert [play.kind for play in lucky] == [LuckKind.PASS_DEFENDED_INCOMPLETE] * 2
+
+
+def test_a_pass_nobody_touched_is_not_a_coin_flip():
+    """An overthrow is a throw, not a bounce. Only the ones a defender reached."""
+    game = _pass_game(
+        ("Pass incomplete deep left to Brown, broken up by Slay", False),
+        ("Pass incomplete short right to Smith, broken up by Bates", False),
+    )
+
+    lucky = find_lucky_plays(game.plays)
+
+    assert len(lucky) == 2, "only the two the text says were defended"
+
+
+def test_an_interception_in_a_game_that_records_nothing_is_left_alone():
+    """
+    The gate. A feed that doesn't write down broken-up passes still writes
+    down every interception, and adjusting those alone would charge a defense
+    for its picks and credit it for none of the balls it got a hand on.
+    """
+    game = _pass_game(("Pass intercepted by Slay at PHI 40", True))
 
     assert find_lucky_plays(game.plays) == []
 
@@ -127,11 +213,15 @@ def test_an_interception_that_was_later_fumbled_is_still_an_interception():
     as a fumble would price the wrong branch, and get the direction of the
     possession flip backwards.
     """
-    game = _snaps(
-        ("Pass intercepted by Slay, FUMBLE on the return, recovered by PHI", True)
+    game = _pass_game(
+        ("Pass intercepted by Slay, FUMBLE on the return, recovered by PHI", True),
+        ("Pass incomplete deep left to Brown, broken up by Slay", False),
+        ("Pass incomplete short right to Smith, broken up by Bates", False),
     )
 
-    assert find_lucky_plays(game.plays) == []
+    (pick, *_) = find_lucky_plays(game.plays)
+
+    assert pick.kind is LuckKind.PASS_DEFENDED_INTERCEPTION
 
 
 def test_a_fumble_wiped_out_by_a_penalty_never_happened():
@@ -581,25 +671,30 @@ def test_a_coin_flip_hands_out_half_of_what_it_swung():
     assert breaks.net == pytest.approx(-0.2)
 
 
-def test_a_tipped_ball_hands_out_three_quarters_of_it():
+def test_an_interception_hands_out_four_fifths_of_its_swing():
     """
-    The same swing off a less likely bounce is more of a gift. Three passes in
-    four come off a helmet and fall, so the one that got caught was mostly not
-    the defense's doing.
+    The same swing off a less likely branch is more of a gift. Four balls in
+    five that a defender gets to fall incomplete, so the one that was caught
+    was mostly not the defense's doing.
     """
-    game = _snaps(
+    game = _pass_game(
         (None, False),
-        ("Pass intercepted by Slay at PHI 40 (tipped by Sweat)", True),
-        (None, False),
+        ("Pass intercepted by Slay at PHI 40", True),
+        ("Pass incomplete deep left to Brown, broken up by Slay", False),
+        ("Pass incomplete short right to Smith, broken up by Bates", False),
     )
 
     breaks = lucky_wp(_FixedModel([0.5, 0.5, 0.2], counterfactual=0.6), game)
 
-    (swing,) = breaks.swings
-    assert swing.retained == 0.25
-    assert swing.expected == pytest.approx(0.5)
-    assert swing.home_delta == pytest.approx(-0.3)
-    assert (breaks.home, breaks.away) == pytest.approx((0.0, 0.3))
+    pick = next(
+        swing
+        for swing in breaks.swings
+        if swing.kind is LuckKind.PASS_DEFENDED_INTERCEPTION
+    )
+    assert pick.retained == 0.20
+    # 0.2 * 0.2 + 0.8 * 0.6, and the realized 0.2 is 0.32 below it.
+    assert pick.expected == pytest.approx(0.52)
+    assert pick.home_delta == pytest.approx(-0.32)
 
 
 def test_both_teams_can_get_a_break_in_the_same_game():
@@ -638,47 +733,56 @@ def test_retaining_everything_hands_out_nothing_either():
     bounce that was always going to happen that way was not a bounce. The
     plays are still reported -- only their share of the swing is zero.
     """
-    game = _snaps(
+    game = _pass_game(
         ("FUMBLE, recovered by DAL.", True),
-        ("Pass intercepted by Slay (tipped by Sweat)", True),
+        ("Pass intercepted by Slay at PHI 40", True),
+        ("Pass incomplete deep left to Brown, broken up by Slay", False),
+        ("Pass incomplete short right to Smith, broken up by Bates", False),
         (None, False),
     )
     everything = {kind: 1.0 for kind in LuckKind}
 
     breaks = lucky_wp(
-        _FixedModel([0.4, 0.55, 0.7], counterfactual=0.01), game, retained=everything
+        _FixedModel([0.4, 0.55, 0.7, 0.6], counterfactual=0.01),
+        game,
+        retained=everything,
     )
 
-    assert len(breaks.swings) == 2
+    assert len(breaks.swings) >= 3
     assert all(swing.home_delta == pytest.approx(0.0) for swing in breaks.swings)
     assert (breaks.home, breaks.away) == pytest.approx((0.0, 0.0))
 
 
-def test_the_tipped_balls_can_be_left_out_of_the_total():
+def test_the_pass_pair_can_be_left_out_of_the_total():
     """
-    The escape hatch for the one-sided half of this number: a tipped pass that
-    was intercepted is in the play text and one that fell incomplete is not,
-    so a caller who wants only the part with both branches observed turns the
-    tipped balls off. `retained=1.0` is how, and the fumbles are untouched.
+    The dial, on a whole coin rather than one side of it. Turning the pass
+    pair off has to turn off *both* of its kinds -- zeroing only the
+    interception would leave the credit without the charge, which is the same
+    error as the gate exists to prevent, pointed the other way.
     """
-    game = _snaps(
+    game = _pass_game(
         ("FUMBLE, recovered by DAL.", True),
-        ("Pass intercepted by Slay (tipped by Sweat)", True),
+        ("Pass intercepted by Slay at PHI 40", True),
+        ("Pass incomplete deep left to Brown, broken up by Slay", False),
+        ("Pass incomplete short right to Smith, broken up by Bates", False),
         (None, False),
     )
-    fumbles_only = {**DEFAULT_RETAINED, LuckKind.TIPPED_INTERCEPTION: 1.0}
+    fumbles_only = {
+        **DEFAULT_RETAINED,
+        LuckKind.PASS_DEFENDED_INTERCEPTION: 1.0,
+        LuckKind.PASS_DEFENDED_INCOMPLETE: 1.0,
+    }
 
-    both = lucky_wp(_FixedModel([0.5, 0.3, 0.1], counterfactual=0.7), game)
+    both = lucky_wp(_FixedModel([0.5, 0.3, 0.1, 0.2], counterfactual=0.7), game)
     fumbles = lucky_wp(
-        _FixedModel([0.5, 0.3, 0.1], counterfactual=0.7), game, retained=fumbles_only
+        _FixedModel([0.5, 0.3, 0.1, 0.2], counterfactual=0.7),
+        game,
+        retained=fumbles_only,
     )
 
-    assert [swing.kind for swing in fumbles.swings] == [
-        LuckKind.FUMBLE_LOST,
-        LuckKind.TIPPED_INTERCEPTION,
-    ]
-    assert fumbles.away == pytest.approx(0.2)  # 0.5 * (0.3 - 0.7), and nothing else
-    assert both.away > fumbles.away
+    # 0.5 * (0.3 - 0.7) from the fumble, and nothing from the passes.
+    assert fumbles.away == pytest.approx(0.2)
+    assert both.home + both.away > fumbles.home + fumbles.away
 
 
 def test_a_bounce_on_the_last_snap_has_nothing_to_price_it_against():
@@ -759,3 +863,96 @@ def test_the_total_is_win_probability_not_a_share_of_the_clock():
     assert lucky_wp(_FixedModel([0.5, 0.2, 0.2], 0.6), early).away == pytest.approx(
         lucky_wp(_FixedModel([0.5, 0.5, 0.5, 0.2], 0.6), late).away
     )
+
+
+# --- Whether a game's feed says enough ---------------------------------
+
+
+def test_a_feed_that_records_defended_passes_opens_the_gate():
+    game = _pass_game(
+        ("Pass incomplete deep left to Brown, broken up by Slay", False),
+        ("Pass incomplete short right to Smith, broken up by Bates", False),
+    )
+
+    assert records_defended_passes(game.plays) is True
+
+
+def test_a_feed_that_records_none_of_them_keeps_it_shut():
+    """
+    NCAAFB 2022-24 for most venues, and the NFL before 2009. Every
+    interception is still in the text; none of them is adjustable.
+    """
+    game = _pass_game()
+
+    assert records_defended_passes(game.plays) is False
+
+
+def test_recording_a_few_of_them_is_not_enough():
+    """
+    Presence isn't the test, the rate is. A venue that writes down a third of
+    its breakups would leak in proportion to the two thirds it didn't -- the
+    charge on interceptions is whole either way, and only the credit shrinks.
+    """
+    game = _pass_game(
+        ("Pass incomplete deep left to Brown, broken up by Slay", False),
+        incompletions=40,
+    )
+
+    assert records_defended_passes(game.plays) is False
+
+
+def test_a_game_with_barely_any_passing_says_nothing_either_way():
+    """
+    Below `MIN_INCOMPLETIONS` the absence of a marker is not evidence of a
+    feed that doesn't write them, just of a game that didn't throw.
+    """
+    game = _snaps(
+        ("Pass incomplete short right to Smith, broken up by Bates", False),
+        (None, False),
+    )
+
+    assert records_defended_passes(game.plays) is False
+
+
+def test_the_floor_is_a_keyword_like_the_weights_are():
+    game = _pass_game(
+        ("Pass incomplete deep left to Brown, broken up by Slay", False),
+        incompletions=40,
+    )
+
+    assert records_defended_passes(game.plays, floor=0.02) is True
+
+
+def test_the_gate_decides_both_sides_of_the_coin_together():
+    """
+    The property the whole design rests on. A shut gate drops the defended
+    incompletions *and* the interceptions; it can never drop one and keep the
+    other, because that is the biased half.
+    """
+    shut = _pass_game(("Pass intercepted by Slay at PHI 40", True))
+    open_ = _pass_game(
+        ("Pass intercepted by Slay at PHI 40", True),
+        ("Pass incomplete deep left to Brown, broken up by Slay", False),
+        ("Pass incomplete short right to Smith, broken up by Bates", False),
+    )
+
+    assert [lucky.kind for lucky in find_lucky_plays(shut.plays)] == []
+    kinds = Counter(lucky.kind for lucky in find_lucky_plays(open_.plays))
+    assert kinds[LuckKind.PASS_DEFENDED_INTERCEPTION] == 1
+    assert kinds[LuckKind.PASS_DEFENDED_INCOMPLETE] == 2
+
+
+def test_a_shut_gate_still_adjusts_the_fumbles():
+    """
+    The gate is about the pass coin only. A game whose feed says nothing about
+    defended passes still has both branches of every fumble in its text, so it
+    gets the smaller adjustment rather than none.
+    """
+    game = _pass_game(
+        ("Barkley rush for 3 yards. FUMBLE, recovered by DAL.", True),
+        ("Pass intercepted by Slay at PHI 40", True),
+    )
+
+    assert [lucky.kind for lucky in find_lucky_plays(game.plays)] == [
+        LuckKind.FUMBLE_LOST
+    ]

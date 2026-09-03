@@ -306,7 +306,8 @@ that happens.
 | --- | --- | --- |
 | `fumble_lost` | 0.5 | loose-ball recovery is a coin flip; neither side recovers its own at a rate that holds up year over year |
 | `fumble_kept` | 0.5 | the same coin, seen from the side that got away with one |
-| `tipped_interception` | 0.25 | a ball off a hand or a helmet falls incomplete far more often than a defender comes down with it |
+| `pass_defended_interception` | 0.20 | of the passes a defender is recorded as reaching, one in five is caught |
+| `pass_defended_incomplete` | 0.80 | the other four — the interception that wasn't |
 
 The fumble pair is measured; the tipped one can't be. `make rates` is the
 measurement:
@@ -330,11 +331,16 @@ closer than the leagues are to each other. The two fumble entries are a
 gets that for free; any measured pair has to be held to it, and would have to
 be per-league.
 
-`tipped_interception` is a guess. The numerator can't be selected: no
-interception in either league records how the ball got there, and 88 of 8,980
-NFL picks and 0 of 47,543 NCAAFB ones carry any deflection marker. The
-denominator depends on the league, and `make rates` prints which kind you're
-looking at rather than averaging them into one misleading number.
+The pass pair is measured the same way, with one wrinkle: the two leagues
+write "a defender reached it" in different alphabets, and one of them writes
+it unevenly. That's what the rest of this section is about, and what the
+[per-game gate](#the-gate) exists for.
+
+Note what the pair is *not* about: whether the ball was tipped. No
+interception in either league records how it got there — 88 of 8,980 NFL picks
+and 0 of 47,543 NCAAFB ones carry a deflection marker — so "interceptions off
+a tip" isn't a population that can be selected. "A defender got to it" is, and
+turned out to be the better question anyway.
 
 `by_family` splits that denominator by what caught it, and the split is the
 interesting part: **the two leagues say it in different alphabets.**
@@ -437,7 +443,7 @@ says so at the call site:
 from lucky_ones.luck import DEFAULT_RETAINED, LuckKind
 
 MODELS.NFL.luck_adjusted_game_control(
-    game, retained={**DEFAULT_RETAINED, LuckKind.TIPPED_INTERCEPTION: 0.4}
+    game, retained={**DEFAULT_RETAINED, LuckKind.PASS_DEFENDED_INTERCEPTION: 0.3}
 )
 ```
 
@@ -452,6 +458,43 @@ it happened, and the outcome that *didn't* happen is one this code can build a
 adjust); blocked kicks (the block is a play someone made, and only the bounce
 after it is luck); a field goal off the upright (no branch to build);
 untipped interceptions (a throw into coverage is a decision).
+
+### The gate
+
+The pass pair needs both its sides, and whether a game's feed records the
+*breakup* side is a property of whoever typed the play-by-play. In NCAAFB it
+follows the **home venue**: between 2019 and 2023 the venues doing it fell from
+168 to 41 of 224 — 127 dropped it and **none** took it up. The NFL has done it
+every season since 2009 and not at all before.
+
+So `records_defended_passes` asks each game, and the pair is adjusted only
+where the game can support both sides:
+
+```python
+from lucky_ones.luck import records_defended_passes
+
+records_defended_passes(game.plays)  # True -> the pass coin is in play
+```
+
+A game that fails still gets its fumbles adjusted. It just gets a *smaller*
+adjustment, which is the honest shape: the number is what the game can support,
+not a constant pretending the evidence is even.
+
+The test is a rate — 15% of a game's incompletions, over at least ten of them —
+rather than presence, because a venue recording only some of its breakups would
+leak in proportion to what it missed. What says the rate is enough is the ratio
+inside passing games:
+
+| | 2018 | 2022 | 2023 | 2025 | 2026 |
+| --- | --- | --- | --- | --- | --- |
+| NCAAFB games passing | 68% | 19% | 18% | 50% | 94% |
+| breakups per interception | 3.8 | 4.4 | 4.2 | 4.6 | 4.6 |
+
+The balance point is `(1 − retained) / retained` = **4**, and passing games sit
+on it in every season — including 2022–24, where only a fifth of games pass. The
+collapse took whole games, not fidelity within them, so a 2023 game that passes
+is worth what a 2019 one is. In the NFL 90–95% of games pass every season from
+2009.
 
 ### Three things it isn't
 
@@ -525,31 +568,35 @@ that `net` alone reports identically.
 
 ### The one thing to watch
 
-**The tipped balls are counted one-sidedly, and in a running total that costs
-more than it does next door.** A tipped pass that *was* intercepted is in
-ESPN's play text; one that bounced off a helmet and fell incomplete mostly
-isn't. So a defense is charged for the tips that went its way and an offense is
-never credited for the ones that didn't — and a dropped tip is worth 0.25 of a
-full turnover swing. In `luck_adjusted_game_control` a missing play shifts a
-curve a little; in a sum it's a one-way leak.
+**A kind is only ever adjusted with its opposite.** That's the rule the whole
+design turns on, and the reason for [the gate](#the-gate). An interception
+charged `1 − retained` needs the pass that was broken up credited `retained`,
+or the metric stops netting to zero in expectation and becomes a levy on
+whoever the recorded side happens to fall against — every defense charged for
+its picks, none credited for the balls it got a hand on. Breakups outnumber
+interceptions about four to one, which is exactly `(1 − retained) / retained`,
+so the two sides are the same size in aggregate: counting one is not a small
+leak, it's half the effect pointed one way.
 
-The saving grace is arithmetic rather than design: **the kind barely fires.**
-Across the whole corpus it lands on 88 NFL interceptions in twenty seasons and
-zero NCAAFB ones, and the NFL annotation has stopped — none at all in 2025. So
-the leak is real, and the population it leaks over is a handful of plays a
-decade. If you'd rather it were exactly zero, `retained=1.0` zeroes the kind's
-contribution while still reporting the plays:
+The same rule applies to the dial. If you want the pass coin out of the
+number, turn off **both** of its kinds — zeroing only the interception leaves
+the credit without the charge, which is the same error with the sign flipped:
 
 ```python
 from lucky_ones.luck import DEFAULT_RETAINED, LuckKind
 
 MODELS.NFL.lucky_wp(
-    game, retained={**DEFAULT_RETAINED, LuckKind.TIPPED_INTERCEPTION: 1.0}
+    game,
+    retained={
+        **DEFAULT_RETAINED,
+        LuckKind.PASS_DEFENDED_INTERCEPTION: 1.0,
+        LuckKind.PASS_DEFENDED_INCOMPLETE: 1.0,
+    },
 )
 ```
 
-Fumbles carry essentially the whole number, then, and they're the half that
-holds up: both branches are written down, the rate is measured rather than
+Fumbles are the half that needs no gate: both branches are in every feed's
+text, in every season, in both leagues. The rate is measured rather than
 assumed, and which branch happened is settled by two witnesses rather than one.
 That last part matters more than it sounds. `is_turnover` alone is wrong on 17%
 of NFL fumbles and 34% of NCAAFB ones — nearly always a false negative on a

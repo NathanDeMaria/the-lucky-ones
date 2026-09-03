@@ -31,12 +31,15 @@ SNAP_SECONDS = 30
 # the other one.
 FUMBLE_CHANCE = 0.02
 
-# Enough passes for `train.py rates` to have a denominator, with the two
-# things it counts on either side of it: a defended incompletion in the shape
-# NCAAFB writes ("broken up by"), and an interception, which `_classify`
-# deliberately leaves alone because an untipped one is a decision.
+# Enough passes, and enough of them incomplete, for both halves of the pass
+# coin to appear: an interception, and a defended incompletion in the shape
+# NCAAFB writes it ("broken up by"). The rates are chosen so a game clears
+# `luck.records_defended_passes` -- roughly 19 incompletions with a third of
+# them defended, against a floor of ten and 15%. A fixture that fell below the
+# gate would exercise only the path where the gate is shut.
 PASS_CHANCE = 0.45
-BROKEN_UP_CHANCE = 0.08
+INCOMPLETION_CHANCE = 0.36
+BROKEN_UP_CHANCE = 0.30
 INTERCEPTION_CHANCE = 0.03
 
 # A drive is six snaps unless the ball changes hands first.
@@ -84,15 +87,12 @@ def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
             passed = rng.random() < PASS_CHANCE
             fumbled = rng.random() < FUMBLE_CHANCE
             lost = fumbled and rng.random() < 0.5
-            intercepted = (
-                passed and not fumbled and (rng.random() < INTERCEPTION_CHANCE)
+            live_pass = passed and not fumbled
+            intercepted = live_pass and rng.random() < INTERCEPTION_CHANCE
+            incomplete = (
+                live_pass and not intercepted and rng.random() < INCOMPLETION_CHANCE
             )
-            broken_up = (
-                passed
-                and not fumbled
-                and not intercepted
-                and (rng.random() < BROKEN_UP_CHANCE)
-            )
+            broken_up = incomplete and rng.random() < BROKEN_UP_CHANCE
             if fumbled:
                 text = (
                     f"{'Pass complete' if passed else 'Rush'} for 3 yards. "
@@ -103,7 +103,10 @@ def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
                 text = "Pass intercepted."
                 play_type = "Pass Interception"
             elif broken_up:
-                text = "Pass incomplete, broken up by a defender."
+                text = "Pass incomplete short right to Smith, broken up by Jones."
+                play_type = "Pass Incompletion"
+            elif incomplete:
+                text = "Pass incomplete short right to Smith."
                 play_type = "Pass Incompletion"
             elif passed:
                 text = "Pass complete for 6 yards"
