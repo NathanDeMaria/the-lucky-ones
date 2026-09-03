@@ -309,18 +309,27 @@ def curve(
     )
 
 
-# Not a classifier -- nothing in `lucky_ones` reads these. They are the only
-# phrases ESPN writes when a defender got a hand on a pass that stayed
-# incomplete, which makes them the only denominator on offer for
-# `LuckKind.TIPPED_INTERCEPTION`. See `rates`, and what it has to say about
-# how far that denominator can be trusted.
-DEFENDED_MARKERS: tuple[str, ...] = (
-    "broken up",
-    "defensed",
-    "knocked down",
-    "knocked away",
-    "pass defended",
-)
+# Not a classifier -- nothing in `lucky_ones` reads these. Every phrase that
+# could mean a defender got a hand on a pass that stayed incomplete, which
+# together are the only denominator on offer for
+# `LuckKind.TIPPED_INTERCEPTION`.
+#
+# Kept as families rather than one flat tuple to answer the question that
+# comes up every time the share moves: is the annotation going away, or is it
+# being written a different way? `rates` reports each family separately, and
+# the answer over this corpus is neither generous -- `broken_up` is the whole
+# union in NCAAFB and every other family is flat zero, while the NFL's union
+# never clears 0.7% of pass attempts and is exactly zero in 2006, 2007 and
+# 2025. There is no rename to find. See `rates`.
+DEFENDED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "broken_up": ("broken up", "broke up", "break up"),
+    "defensed": ("defensed", "pass defended", "defended by", "pbu"),
+    "deflected": ("deflect",),
+    "tipped": ("tipped", "tip by"),
+    "batted": ("batted", "bat down"),
+    "knocked": ("knocked down", "knocked away", "knocked loose"),
+    "swatted": ("swatted", "punched away", "slapped away"),
+}
 
 
 def rates(
@@ -357,6 +366,14 @@ def rates(
     barely moves. A share computed against half-recorded breakups is a
     measurement of the annotation, so read `coverage` first and the share
     second, or not at all.
+
+    `by_family` is there to answer the obvious follow-up -- whether a season
+    that stopped saying "broken up by" started saying something else, in
+    which case the union would be steady even though one family wasn't. It
+    doesn't: in NCAAFB `broken_up` is the entire union and every other family
+    is zero, and the NFL's whole union peaks at 0.67% of pass attempts and is
+    zero outright in 2006, 2007 and 2025. Widening the denominator does not
+    rescue it, which is worth being able to re-check rather than remember.
     """
     years = _parse_seasons(seasons)
     plays = asyncio.run(_load(_source(root), league, years, _parse_weeks(weeks)))
@@ -376,12 +393,22 @@ def rates(
             kind = (play.play_type or "").lower()
             # Sacks carry "pass" in the text often enough to matter and are
             # not attempts; an interception is one however it is typed.
-            if intercepted or ("pass" in kind and "sack" not in kind):
-                passes[game.season]["attempts"] += 1
+            if not (intercepted or ("pass" in kind and "sack" not in kind)):
+                continue
+            passes[game.season]["attempts"] += 1
             if intercepted:
                 passes[game.season]["interceptions"] += 1
-            elif any(marker in text for marker in DEFENDED_MARKERS):
-                passes[game.season]["broken_up"] += 1
+                continue
+            defended = False
+            for family, markers in DEFENDED_FAMILIES.items():
+                if any(marker in text for marker in markers):
+                    passes[game.season][f"family:{family}"] += 1
+                    defended = True
+            # One play can match two families and is still one defended pass.
+            # The family keys are prefixed because one of them is `broken_up`
+            # too, and a total sharing a key with a family counts twice.
+            if defended:
+                passes[game.season]["defended"] += 1
 
     print(
         json.dumps(
@@ -427,21 +454,30 @@ def _defended_rates(per_season: dict[int, Counter]) -> dict:
     """
     Interceptions over the passes a defender is recorded as having reached.
 
-    `coverage` is `broken_up / attempts` -- how much of the denominator the
+    `coverage` is `defended / attempts` -- how much of the denominator the
     season's text writes down at all. It is the number to read: the share is
-    only as good as it.
+    only as good as it. `by_family` splits the same total by the phrase that
+    caught it, and omits the families that caught nothing.
+
+    A play matching two families counts once in `defended` and once in each,
+    so `by_family` sums to at least the total rather than exactly it.
     """
 
     def summarise(counts: Counter) -> dict:
         attempts = counts["attempts"]
         interceptions = counts["interceptions"]
-        broken_up = counts["broken_up"]
-        defended = interceptions + broken_up
+        defended_passes = counts["defended"]
+        defended = interceptions + defended_passes
         return {
             "attempts": attempts,
             "interceptions": interceptions,
-            "broken_up": broken_up,
-            "coverage": round(broken_up / attempts, 4) if attempts else None,
+            "defended": defended_passes,
+            "by_family": {
+                family: counts[f"family:{family}"]
+                for family in DEFENDED_FAMILIES
+                if counts[f"family:{family}"]
+            },
+            "coverage": round(defended_passes / attempts, 4) if attempts else None,
             "interception_share": (
                 round(interceptions / defended, 4) if defended else None
             ),
