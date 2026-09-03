@@ -379,13 +379,47 @@ seasons:
 only as slowly as the interception rate itself. 2006–08 are missing or partial
 and 2008 is the adoption year.
 
-What that number is not is the *tipped* share `retained` is nominally about. A
+### The two leagues agree
+
+NCAAFB switched to a gamebook-shaped format in 2026 — leading clock,
+formation, jersey numbers, parenthetical tacklers — but kept saying the pass
+defensed in words:
+
+```
+(12:20) Shotgun #9 B.Edwards Jr. pass incomplete short left to #4 M.Humphrey
+        thrown to TCU00 broken up by #1 V.Glover
+```
+
+What changed isn't the alphabet, it's the completeness. College coverage hits
+**0.107 in 2026** against the NFL's 0.109 — and the share lands on the same
+number too, 0.188 against 0.177. Two feeds that share no code, agreeing.
+
+That's what makes every earlier college season readable, because each one's
+share turns out to be a statement about its own coverage rather than about
+football. `implied_share` takes the denominator at `REFERENCE_COVERAGE` (0.10,
+what both feeds report when complete) instead of the season's own:
+
+| | coverage | raw share | implied |
+| --- | --- | --- | --- |
+| NCAAFB 2013 | 0.068 | 0.304 | **0.228** |
+| NCAAFB 2018 | 0.080 | 0.266 | **0.224** |
+| NCAAFB 2023 | 0.024 | 0.534 | **0.217** |
+| NCAAFB 2026 | 0.107 | 0.188 | **0.199** |
+| NFL 2012 | 0.109 | 0.203 | **0.217** |
+| NFL 2025 | 0.109 | 0.177 | **0.190** |
+
+Raw, those shares span 0.18 to 0.69. Corrected, twenty seasons and two leagues
+sit in **0.19–0.23**. So `P(interception | a defender reached the ball)` is
+about **0.20**, it is the same in both leagues, and the instability was never
+in the football.
+
+What that number is *not* is the tipped share `retained` is nominally about. A
 pass defensed is any ball a defender reached, and no interception in either
-league records whether one was tipped on the way. 0.20 is `P(interception | a
-defender reached it)` — a different question than `tipped_interception` asks,
-better founded, and the one worth building on if this ever becomes a real
-adjustment. It costs little that the shipped 0.25 is a guess, for the reason
-under [Lucky WP](#the-one-thing-to-watch).
+league records whether one was tipped on the way. So 0.20 answers a
+neighbouring question — better founded, on a stable population, and the one
+worth building on if this kind ever grows into an adjustment over all
+interceptions. It costs little that the shipped 0.25 is a guess, for the
+reason under [Lucky WP](#the-one-thing-to-watch).
 
 One thing the same evidence rules out: making the numerator *all*
 interceptions rather than tipped ones. That population is stable — the
