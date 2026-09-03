@@ -330,32 +330,62 @@ closer than the leagues are to each other. The two fumble entries are a
 gets that for free; any measured pair has to be held to it, and would have to
 be per-league.
 
-`tipped_interception` is a guess, and `make rates` prints why rather than
-pretending otherwise. The numerator can't be selected: no interception in
-either league records how the ball got there, and 88 of 8,980 NFL picks and 0
-of 47,543 NCAAFB ones carry any deflection marker. The denominator is
-annotation rather than football — `coverage`, defended incompletions per pass
-attempt, moves by a factor of four between seasons while the interception rate
-holds still, dragging the share from 0.19 to 0.56 with it.
+`tipped_interception` is a guess. The numerator can't be selected: no
+interception in either league records how the ball got there, and 88 of 8,980
+NFL picks and 0 of 47,543 NCAAFB ones carry any deflection marker. The
+denominator depends on the league, and `make rates` prints which kind you're
+looking at rather than averaging them into one misleading number.
 
-The obvious rescue is to widen the denominator: if a season stopped writing
-"broken up by" and started writing something else, the union of every phrase
-would be steady even though one family wasn't. `by_family` is there to check
-that, and it says no. In NCAAFB `broken_up` **is** the union — every other
-family is flat zero in every season — so the 2021–24 collapse from 8.0% to
-2.2% coverage is annotation genuinely going away, not a rename. In the NFL the
-union of all seven families peaks at 0.61% of pass attempts (2012) and is
-exactly zero in 2006, 2007 and 2025. There is no wider net to cast.
+`by_family` splits that denominator by what caught it, and the split is the
+interesting part: **the two leagues say it in different alphabets.**
+
+NCAAFB says it in words, unreliably. `broken_up` is its entire union — every
+other phrase family is flat zero in every season — so there is no rename to
+find, and the 2021–24 collapse from 8.0% to 2.2% coverage is annotation
+genuinely going away:
 
 | NCAAFB | 2018 | 2023 | 2025 |
 | --- | --- | --- | --- |
 | coverage | 0.080 | 0.024 | 0.058 |
 | `interception_share` | 0.266 | 0.534 | 0.303 |
 
-Read against the best-covered seasons the true value is somewhere in the low
-0.2s, which is the only real support for the 0.25 that ships — and it costs
-little that this is guesswork, for the reason under
-[Lucky WP](#the-one-thing-to-watch).
+The NFL says it in punctuation, and steadily. Its text is gamebook text, where
+a trailing parenthetical is the defender credited with the play and a bracket
+is the one who hit the passer:
+
+```
+J.Garcia pass incomplete short middle to E.Graham (B.James) [S.Bowen]
+                                                   ^^^^^^^^  ^^^^^^^^
+                                                   defensed    QB hit
+```
+
+On a *completion* that parenthetical is the tackler, so only incompletions are
+read — an incomplete pass has nobody to tackle, and the credit there is the
+pass defensed. The check that settles it: touchdown completions have no
+tackler either, and they carry a parenthetical 20% of the time against 82% for
+every other completion.
+
+That gives a denominator worth the name. `defensed_syntax` runs **0.093 to
+0.109 of pass attempts every season from 2009 on** — a real pass-defensed
+rate, moving less in seventeen years than college moves between consecutive
+seasons:
+
+| NFL | 2012 | 2019 | 2025 |
+| --- | --- | --- | --- |
+| coverage | 0.109 | 0.100 | 0.109 |
+| `interception_share` | 0.203 | 0.190 | 0.177 |
+
+**0.2015 combined over 2009–2025, per-season range 0.177–0.229**, drifting
+only as slowly as the interception rate itself. 2006–08 are missing or partial
+and 2008 is the adoption year.
+
+What that number is not is the *tipped* share `retained` is nominally about. A
+pass defensed is any ball a defender reached, and no interception in either
+league records whether one was tipped on the way. 0.20 is `P(interception | a
+defender reached it)` — a different question than `tipped_interception` asks,
+better founded, and the one worth building on if this ever becomes a real
+adjustment. It costs little that the shipped 0.25 is a guess, for the reason
+under [Lucky WP](#the-one-thing-to-watch).
 
 One thing the same evidence rules out: making the numerator *all*
 interceptions rather than tipped ones. That population is stable — the
