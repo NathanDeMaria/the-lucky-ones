@@ -369,6 +369,15 @@ def _defensed_by_syntax(text: str) -> bool:
     return False
 
 
+# What a complete feed records: defended passes per pass attempt. Two feeds
+# that share no code agree on it -- the NFL's gamebook parenthetical runs
+# 0.093-0.109 every season from 2009, and NCAAFB's "broken up by" hits 0.107
+# in 2026, the season it switched to a gamebook-shaped format. Every NCAAFB
+# season before that is below it, and `implied_share` is what the season would
+# have said had it not been.
+REFERENCE_COVERAGE = 0.10
+
+
 def rates(
     league: str = "nfl",
     seasons: str = "2025",
@@ -505,12 +514,23 @@ def _defended_rates(per_season: dict[int, Counter]) -> dict:
     Interceptions over the passes a defender is recorded as having reached.
 
     `coverage` is `defended / attempts` -- how much of the denominator the
-    season's text writes down at all. It is the number to read: the share is
-    only as good as it. `by_family` splits the same total by the phrase that
-    caught it, and omits the families that caught nothing.
+    season's text writes down at all, and the number to read first, because
+    `interception_share` is only ever as good as it.
 
-    A play matching two families counts once in `defended` and once in each,
-    so `by_family` sums to at least the total rather than exactly it.
+    `implied_share` is the same share with the denominator taken at
+    `REFERENCE_COVERAGE` instead of the season's own: what the season would
+    have said had its feed recorded every defended pass. It is the one that
+    can be compared across seasons and across leagues, and doing so is what
+    turns this from a shrug into a measurement -- every NCAAFB season from
+    2006 on lands between 0.19 and 0.22 once corrected, which is the NFL's
+    own range, from a feed that shares no code with it. A season whose
+    `coverage` is already at or above the reference is its own best evidence
+    and doesn't need the correction; read `interception_share` there.
+
+    `by_family` splits the total by the phrase or the punctuation that caught
+    it, and omits the families that caught nothing. A play matching two
+    families counts once in `defended` and once in each, so `by_family` sums
+    to at least the total rather than exactly it.
     """
 
     def summarise(counts: Counter) -> dict:
@@ -518,6 +538,7 @@ def _defended_rates(per_season: dict[int, Counter]) -> dict:
         interceptions = counts["interceptions"]
         defended_passes = counts["defended"]
         defended = interceptions + defended_passes
+        implied = interceptions + REFERENCE_COVERAGE * attempts
         return {
             "attempts": attempts,
             "interceptions": interceptions,
@@ -531,6 +552,7 @@ def _defended_rates(per_season: dict[int, Counter]) -> dict:
             "interception_share": (
                 round(interceptions / defended, 4) if defended else None
             ),
+            "implied_share": (round(interceptions / implied, 4) if implied else None),
         }
 
     total = Counter()

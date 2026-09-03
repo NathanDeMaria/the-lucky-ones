@@ -14,6 +14,7 @@ from lucky_ones.release import WinProbabilityRelease
 from synthetic import write_tree
 from train import (
     DEFENDED_FAMILIES,
+    REFERENCE_COVERAGE,
     _parse_seasons,
     _parse_weeks,
     curve,
@@ -194,3 +195,21 @@ def test_rates_splits_the_denominator_by_the_phrase_that_caught_it(tree, capsys)
     defended = json.loads(capsys.readouterr().out)["defended_passes"]
     assert defended["by_family"] == {"broken_up": defended["defended"]}
     assert set(defended["by_family"]) <= set(DEFENDED_FAMILIES)
+
+
+def test_rates_implies_the_share_a_complete_feed_would_have_given(tree, capsys):
+    """
+    The field that makes seasons comparable. A season's raw share is mostly a
+    statement about how much its feed wrote down; taking the denominator at
+    `REFERENCE_COVERAGE` instead says what it would have been had the feed
+    written down everything. On real data that pulls a 0.18-0.69 spread across
+    two leagues and twenty seasons into 0.19-0.23.
+    """
+    rates(league="nfl", seasons="2025", root=str(tree))
+
+    defended = json.loads(capsys.readouterr().out)["defended_passes"]
+    assert defended["implied_share"] == pytest.approx(
+        defended["interceptions"]
+        / (defended["interceptions"] + REFERENCE_COVERAGE * defended["attempts"]),
+        abs=1e-4,
+    )
