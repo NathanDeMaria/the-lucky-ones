@@ -12,7 +12,14 @@ import pytest
 
 from lucky_ones.release import WinProbabilityRelease
 from synthetic import write_tree
-from train import _parse_seasons, _parse_weeks, curve, rates, train
+from train import (
+    DEFENDED_FAMILIES,
+    _parse_seasons,
+    _parse_weeks,
+    curve,
+    rates,
+    train,
+)
 
 
 @pytest.fixture(name="tree")
@@ -166,11 +173,24 @@ def test_rates_reports_coverage_next_to_the_share_that_depends_on_it(tree, capsy
 
     defended = json.loads(capsys.readouterr().out)["defended_passes"]
     assert defended["attempts"] > 0
-    assert defended["broken_up"] > 0, "the fixture should defend some passes"
+    assert defended["defended"] > 0, "the fixture should defend some passes"
     assert defended["coverage"] == pytest.approx(
-        defended["broken_up"] / defended["attempts"], abs=1e-4
+        defended["defended"] / defended["attempts"], abs=1e-4
     )
     assert defended["interception_share"] == pytest.approx(
-        defended["interceptions"] / (defended["interceptions"] + defended["broken_up"]),
+        defended["interceptions"] / (defended["interceptions"] + defended["defended"]),
         abs=1e-4,
     )
+
+
+def test_rates_splits_the_denominator_by_the_phrase_that_caught_it(tree, capsys):
+    """
+    `by_family` answers "did the annotation stop, or is it worded differently
+    now?" -- the question the share's instability always raises. It omits the
+    families that caught nothing, which on real data is nearly all of them.
+    """
+    rates(league="nfl", seasons="2025", root=str(tree))
+
+    defended = json.loads(capsys.readouterr().out)["defended_passes"]
+    assert defended["by_family"] == {"broken_up": defended["defended"]}
+    assert set(defended["by_family"]) <= set(DEFENDED_FAMILIES)
