@@ -309,6 +309,11 @@ that happens.
 | `pass_defended_interception` | 0.20 | of the passes a defender is recorded as reaching, one in five is caught |
 | `pass_defended_incomplete` | 0.80 | the other four — the interception that wasn't |
 
+The pass pair is the fumble pair in a different hat. Every *contested* pass is
+the denominator, exactly as every fumble is the denominator above, and the
+kind records which side came up — caught or not caught, just as the fumble
+kinds record recovered or not recovered.
+
 The fumble pair is measured; the tipped one can't be. `make rates` is the
 measurement:
 
@@ -381,9 +386,9 @@ seasons:
 | coverage | 0.109 | 0.100 | 0.109 |
 | `interception_share` | 0.203 | 0.190 | 0.177 |
 
-**0.2015 combined over 2009–2025, per-season range 0.177–0.229**, drifting
-only as slowly as the interception rate itself. 2006–08 are missing or partial
-and 2008 is the adoption year.
+**0.1931 combined over 2009–2025**, drifting only as slowly as the
+interception rate itself. 2006–08 are missing or partial, and 2008 is the
+adoption year.
 
 ### The two leagues agree
 
@@ -397,27 +402,27 @@ defensed in words:
 ```
 
 What changed isn't the alphabet, it's the completeness. College coverage hits
-**0.107 in 2026** against the NFL's 0.109 — and the share lands on the same
-number too, 0.188 against 0.177. Two feeds that share no code, agreeing.
+**0.107 in 2026** against the NFL's 0.109.
 
-That's what makes every earlier college season readable, because each one's
-share turns out to be a statement about its own coverage rather than about
-football. `implied_share` takes the denominator at `REFERENCE_COVERAGE` (0.10,
-what both feeds report when complete) instead of the season's own:
+And once the ratio is counted only over games that record both sides, every
+season of both leagues agrees. That gating is not a refinement, it's the
+correctness of the number: a game whose feed records none of its breakups
+still records all of its interceptions, so leaving it in puts a numerator into
+the ratio with nothing underneath it. In NCAAFB 2023 that's four games in five.
 
-| | coverage | raw share | implied |
+| | games recording | ungated | **gated share** |
 | --- | --- | --- | --- |
-| NCAAFB 2013 | 0.068 | 0.304 | **0.228** |
-| NCAAFB 2018 | 0.080 | 0.266 | **0.224** |
-| NCAAFB 2023 | 0.024 | 0.534 | **0.217** |
-| NCAAFB 2026 | 0.107 | 0.188 | **0.199** |
-| NFL 2012 | 0.109 | 0.203 | **0.217** |
-| NFL 2025 | 0.109 | 0.177 | **0.190** |
+| NCAAFB 2018 | 967 / 1,452 | 0.266 | **0.209** |
+| NCAAFB 2022 | 250 / 1,401 | 0.560 | **0.186** |
+| NCAAFB 2023 | 270 / 1,498 | 0.534 | **0.192** |
+| NCAAFB 2026 | 68 / 72 | 0.187 | **0.179** |
+| NFL 2012 | 219 / 241 | 0.204 | **0.194** |
+| NFL 2025 | 234 / 252 | 0.177 | **0.170** |
 
-Raw, those shares span 0.18 to 0.69. Corrected, twenty seasons and two leagues
-sit in **0.19–0.23**. So `P(interception | a defender reached the ball)` is
-about **0.20**, it is the same in both leagues, and the instability was never
-in the football.
+Ungated, those span 0.18 to 0.56. Gated, twenty seasons and two leagues sit in
+**0.170–0.209** — NFL 2009–2025 combined is 0.1931, NCAAFB 2014–2026 is
+0.2069. So `P(intercepted | contested)` is about **0.20**, it's the same in
+both leagues, and the instability was never in the football.
 
 What that number is *not* is the tipped share `retained` is nominally about. A
 pass defensed is any ball a defender reached, and no interception in either

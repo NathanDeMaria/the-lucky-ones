@@ -15,7 +15,6 @@ from lucky_ones.release import WinProbabilityRelease
 from synthetic import write_tree
 from train import (
     DEFENDED_FAMILIES,
-    REFERENCE_COVERAGE,
     _parse_seasons,
     _parse_weeks,
     curve,
@@ -165,12 +164,12 @@ def test_rates_measures_the_fumble_coin(tree, capsys):
     assert "2025" in fumbles["by_season"]
 
 
-def test_rates_reports_coverage_next_to_the_share_that_depends_on_it(tree, capsys):
+def test_rates_reports_what_the_feed_wrote_down_alongside_what_it_means(tree, capsys):
     """
-    `interception_share` is only ever as good as `coverage`, so they are
-    reported together. On real data the second moves by a factor of four
-    between seasons while the interception rate holds still, which is the
-    whole reason the NCAAFB half of the pass pair needs a per-game gate.
+    `coverage` describes the feed -- how much of the denominator a season's
+    text records at all -- and runs over every game, including the ones the
+    share excludes. It is what says whether a season is legible; on real
+    NCAAFB it moves by a factor of four while the football underneath doesn't.
     """
     rates(league="nfl", seasons="2025", root=str(tree))
 
@@ -180,9 +179,8 @@ def test_rates_reports_coverage_next_to_the_share_that_depends_on_it(tree, capsy
     assert defended["coverage"] == pytest.approx(
         defended["defended"] / defended["attempts"], abs=1e-4
     )
-    assert defended["interception_share"] == pytest.approx(
-        defended["interceptions"] / (defended["interceptions"] + defended["defended"]),
-        abs=1e-4,
+    assert defended["gated_coverage"] == pytest.approx(
+        defended["gated_defended"] / defended["gated_attempts"], abs=1e-4
     )
 
 
@@ -211,19 +209,49 @@ def test_the_feed_profiler_covers_what_the_classifier_reads():
     assert set(DEFENDED_MARKERS) <= covered
 
 
-def test_rates_implies_the_share_a_complete_feed_would_have_given(tree, capsys):
+def test_rates_measures_the_share_only_where_both_sides_are_recorded(tree, capsys):
     """
-    The field that makes seasons comparable. A season's raw share is mostly a
-    statement about how much its feed wrote down; taking the denominator at
-    `REFERENCE_COVERAGE` instead says what it would have been had the feed
-    written down everything. On real data that pulls a 0.18-0.69 spread across
-    two leagues and twenty seasons into 0.19-0.23.
+    The correctness of the share, and the thing that is easy to get wrong: a
+    game whose feed records none of its breakups still records all of its
+    interceptions, so counting it puts a numerator into the ratio with nothing
+    underneath it. On real NCAAFB that is four games in five in 2023, and it
+    is the difference between reading 0.53 and reading 0.19.
     """
     rates(league="nfl", seasons="2025", root=str(tree))
 
     defended = json.loads(capsys.readouterr().out)["defended_passes"]
-    assert defended["implied_share"] == pytest.approx(
-        defended["interceptions"]
-        / (defended["interceptions"] + REFERENCE_COVERAGE * defended["attempts"]),
+    assert 0 < defended["games_recording"] <= defended["games"]
+    # The share is the gated counts and nothing else.
+    assert defended["interception_share"] == pytest.approx(
+        defended["gated_interceptions"]
+        / (defended["gated_interceptions"] + defended["gated_defended"]),
         abs=1e-4,
     )
+    # The feed-wide counts are still reported, and are the larger ones.
+    assert defended["interceptions"] >= defended["gated_interceptions"]
+    assert defended["defended"] >= defended["gated_defended"]
+
+
+def test_the_denominator_is_every_contested_pass(tree, capsys):
+    """
+    The pass coin is the fumble coin in a different hat: the denominator is
+    every pass a defender got to, and which side came up is whether it was
+    caught. So the share and `DEFAULT_RETAINED` have to mean the same thing --
+    `interception_share` is what `PASS_DEFENDED_INTERCEPTION` is set from, and
+    its complement is the other kind.
+    """
+    rates(league="nfl", seasons="2025", root=str(tree))
+
+    payload = json.loads(capsys.readouterr().out)
+    defended = payload["defended_passes"]
+    contested = defended["gated_interceptions"] + defended["gated_defended"]
+
+    assert contested == defended["gated_interceptions"] + defended["gated_defended"]
+    assert defended["interception_share"] == pytest.approx(
+        defended["gated_interceptions"] / contested, abs=1e-4
+    )
+    retained = payload["retained_in_use"]
+    assert retained["pass_defended_interception"] + retained[
+        "pass_defended_incomplete"
+    ] == pytest.approx(1.0)
+    assert retained["fumble_lost"] + retained["fumble_kept"] == pytest.approx(1.0)

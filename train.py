@@ -53,6 +53,7 @@ from lucky_ones.luck import (
     find_lucky_plays,
     is_defended_pass,
     lucky_wp_from_states,
+    records_defended_passes,
 )
 from lucky_ones.metrics import brier_score, log_loss
 from lucky_ones.model import LogisticWinProbability, WinProbabilityModel
@@ -334,15 +335,6 @@ DEFENDED_FAMILIES: dict[str, tuple[str, ...]] = {
 }
 
 
-# What a complete feed records: defended passes per pass attempt. Two feeds
-# that share no code agree on it -- the NFL's gamebook parenthetical runs
-# 0.093-0.109 every season from 2009, and NCAAFB's "broken up by" hits 0.107
-# in 2026, the season it switched to a gamebook-shaped format. Every NCAAFB
-# season before that is below it, and `implied_share` is what the season would
-# have said had it not been.
-REFERENCE_COVERAGE = 0.10
-
-
 def rates(
     league: str = "nfl",
     seasons: str = "2025",
@@ -409,6 +401,16 @@ def rates(
     for game in group_by_game(plays):
         for lucky in find_lucky_plays(game.plays):
             fumbles[game.season][lucky.kind.value] += 1
+        # Every count below is kept twice: once over the whole season, which
+        # is the feed profile, and once over only the games whose feed records
+        # defended passes, which is the measurement. Mixing them is the error
+        # this is split to avoid -- a game that records none of its breakups
+        # still records all of its interceptions, so it would put a numerator
+        # into the share and nothing into the denominator. In NCAAFB 2023 that
+        # is four games in five.
+        recording = records_defended_passes(game.plays)
+        passes[game.season]["games"] += 1
+        passes[game.season]["games_recording"] += recording
         for play in game.plays:
             text = (play.text or "").lower()
             if not text or "no play" in text:
@@ -420,8 +422,12 @@ def rates(
             if not (intercepted or ("pass" in kind and "sack" not in kind)):
                 continue
             passes[game.season]["attempts"] += 1
+            if recording:
+                passes[game.season]["gated_attempts"] += 1
             if intercepted:
                 passes[game.season]["interceptions"] += 1
+                if recording:
+                    passes[game.season]["gated_interceptions"] += 1
                 continue
             if "incomplete" not in text:
                 continue
@@ -439,6 +445,8 @@ def rates(
             # sharing a key with a family counts twice.
             if is_defended_pass(play.text):
                 passes[game.season]["defended"] += 1
+                if recording:
+                    passes[game.season]["gated_defended"] += 1
 
     print(
         json.dumps(
@@ -481,48 +489,59 @@ def _fumble_rates(per_season: dict[int, Counter]) -> dict:
 
 def _defended_rates(per_season: dict[int, Counter]) -> dict:
     """
-    Interceptions over the passes a defender is recorded as having reached.
+        Interceptions over the passes a defender is recorded as having reached.
 
-    `coverage` is `defended / attempts` -- how much of the denominator the
-    season's text writes down at all, and the number to read first, because
-    `interception_share` is only ever as good as it.
+    Two sets of counts, and the difference between them is the point.
 
-    `implied_share` is the same share with the denominator taken at
-    `REFERENCE_COVERAGE` instead of the season's own: what the season would
-    have said had its feed recorded every defended pass. It is the one that
-    can be compared across seasons and across leagues, and doing so is what
-    turns this from a shrug into a measurement -- every NCAAFB season from
-    2006 on lands between 0.19 and 0.22 once corrected, which is the NFL's
-    own range, from a feed that shares no code with it. A season whose
-    `coverage` is already at or above the reference is its own best evidence
-    and doesn't need the correction; read `interception_share` there.
+        The bare ones -- `attempts`, `interceptions`, `defended`, `coverage`,
+        `by_family` -- run over every game and describe **the feed**: how much of
+        the denominator a season's text writes down, and in which words. Read
+        `coverage` to know how much of a season is legible at all.
 
-    `by_family` splits the total by the phrase or the punctuation that caught
-    it, and omits the families that caught nothing. A play matching two
-    families counts once in `defended` and once in each, so `by_family` sums
-    to at least the total rather than exactly it.
+        The `gated_` ones and `interception_share` run only over the games where
+        `records_defended_passes` says both sides are recorded, and describe **the
+        football**. That split is the whole correctness of the number: a game that
+        records none of its breakups still records all of its interceptions, so
+        leaving it in puts a numerator into the share with nothing underneath it.
+        In NCAAFB 2023 that is four games in five, which is most of why the
+        ungated ratio there reads 0.53 against a gated 0.19.
+
+        `by_family` splits the feed-wide total by the phrase or the punctuation
+        that caught it, and omits the families that caught nothing. A play
+        matching two families counts once in `defended` and once in each, so
+        `by_family` sums to at least the total rather than exactly it.
     """
 
     def summarise(counts: Counter) -> dict:
         attempts = counts["attempts"]
-        interceptions = counts["interceptions"]
-        defended_passes = counts["defended"]
-        defended = interceptions + defended_passes
-        implied = interceptions + REFERENCE_COVERAGE * attempts
+        gated_attempts = counts["gated_attempts"]
+        gated_interceptions = counts["gated_interceptions"]
+        gated_defended = counts["gated_defended"]
+        gated_total = gated_interceptions + gated_defended
         return {
+            "games": counts["games"],
+            "games_recording": counts["games_recording"],
             "attempts": attempts,
-            "interceptions": interceptions,
-            "defended": defended_passes,
+            "interceptions": counts["interceptions"],
+            "defended": counts["defended"],
+            "coverage": round(counts["defended"] / attempts, 4) if attempts else None,
             "by_family": {
                 family: counts[f"family:{family}"]
                 for family in (*DEFENDED_FAMILIES, "defensed_syntax")
                 if counts[f"family:{family}"]
             },
-            "coverage": round(defended_passes / attempts, 4) if attempts else None,
-            "interception_share": (
-                round(interceptions / defended, 4) if defended else None
+            # Only over the games that record both sides. This is the one to
+            # read -- the counts above describe the feed, this describes the
+            # football.
+            "gated_attempts": gated_attempts,
+            "gated_interceptions": gated_interceptions,
+            "gated_defended": gated_defended,
+            "gated_coverage": (
+                round(gated_defended / gated_attempts, 4) if gated_attempts else None
             ),
-            "implied_share": (round(interceptions / implied, 4) if implied else None),
+            "interception_share": (
+                round(gated_interceptions / gated_total, 4) if gated_total else None
+            ),
         }
 
     total = Counter()
