@@ -57,6 +57,7 @@ Three things this deliberately is not:
   off the curve that fit produces; retrain nothing.
 """
 
+import re
 from enum import StrEnum
 from typing import Iterable, Mapping, NamedTuple, Sequence
 
@@ -73,11 +74,16 @@ class LuckKind(StrEnum):
     """
     The kinds of play this discounts.
 
-    A short list on purpose. Every entry has to clear two bars: the play text
-    says it happened, and the outcome that didn't happen is one this module
-    can build a `GameState` for. Both branches of a fumble and of a tipped
-    pass are "one team has the ball here or the other does", which
-    `_counterfactual` builds exactly.
+    A short list on purpose. Every entry has to clear three bars: the play
+    text says it happened, the outcome that didn't happen is one this module
+    can build a `GameState` for, and **its opposite is on the list too**.
+
+    That last one is what keeps this honest. Each pair is one coin: a fumble
+    lost and a fumble kept, an interception and the pass that was defended
+    and fell. Adjust one side without the other and the metric stops netting
+    to zero in expectation and becomes a levy on whoever the recorded side
+    happens to fall against -- every defense charged for its interceptions
+    and none credited for the balls it got a hand on. Both sides or neither.
 
     What that rules out, and why each is left in the realized number rather
     than guessed at:
@@ -90,8 +96,9 @@ class LuckKind(StrEnum):
     - **A field goal off the upright.** No branch to build: the counterfactual
       to a 51-yarder that went in is a 51-yarder that didn't, which is the
       same state with three fewer points and a different spot.
-    - **Untipped interceptions.** A throw into coverage is a decision, not a
-      bounce.
+    - **A pass nobody touched.** An overthrow is not a coin flip. Only the
+      passes a defender is recorded as having reached are on the list, which
+      is also the only population whose two branches are both observable.
     """
 
     FUMBLE_LOST = "fumble_lost"
@@ -100,8 +107,11 @@ class LuckKind(StrEnum):
     FUMBLE_KEPT = "fumble_kept"
     """A fumble the offense recovered -- the one that got away with it."""
 
-    TIPPED_INTERCEPTION = "tipped_interception"
-    """An interception off a tipped, batted or deflected ball."""
+    PASS_DEFENDED_INTERCEPTION = "pass_defended_interception"
+    """An interception: the ball a defender got to and came down with."""
+
+    PASS_DEFENDED_INCOMPLETE = "pass_defended_incomplete"
+    """The same ball, broken up instead -- the interception that wasn't."""
 
 
 DEFAULT_RETAINED: Mapping[LuckKind, float] = {
@@ -111,12 +121,14 @@ DEFAULT_RETAINED: Mapping[LuckKind, float] = {
     # `train.py rates` is the measurement.
     LuckKind.FUMBLE_LOST: 0.5,
     LuckKind.FUMBLE_KEPT: 0.5,
-    # Not measured, because it cannot be from this source -- see below. A ball
-    # off a hand or a helmet falls incomplete far more often than a defender
-    # comes down with it, and what evidence there is puts the share in the low
-    # 0.2s, so an interception is the unlikely branch and keeps the smaller
-    # part of its swing.
-    LuckKind.TIPPED_INTERCEPTION: 0.25,
+    # Measured too, and the same in both leagues: of the passes a defender is
+    # recorded as having reached, 0.20 are intercepted and 0.80 fall. NFL
+    # 2009-2025 gives 0.2015 and NCAAFB 2026 -- the first season its feed
+    # records them completely -- gives 0.188. Every NCAAFB season back to 2006
+    # agrees once corrected for how much its feed wrote down. Complements, for
+    # the same reason the fumbles are.
+    LuckKind.PASS_DEFENDED_INTERCEPTION: 0.20,
+    LuckKind.PASS_DEFENDED_INCOMPLETE: 0.80,
 }
 """
 How much of each kind's swing is real, as `P(the outcome that happened)`.
@@ -129,36 +141,23 @@ themselves (NFL 0.477, NCAAFB 0.540). Per-league values would be more honest
 and would have to be complements; a single shared pair is the reason this is
 one mapping rather than one per release.
 
-`TIPPED_INTERCEPTION` is a different kind of number, and the honest label is
-*unfalsifiable from this data*:
+The pass pair is `P(interception | a defender reached the ball)` and its
+complement, and it is measured the same way -- with the wrinkle that the two
+leagues write "a defender reached it" in different alphabets. The NFL says it
+in gamebook punctuation, the parenthetical on an *incompletion*, and has said
+it completely since 2009: 0.093 to 0.109 of pass attempts every season.
+NCAAFB says it in words ("broken up by") and said it unevenly until 2026,
+when its feed went gamebook-shaped and its coverage reached the NFL's, 0.107
+against 0.109. Where both are complete they agree -- 0.2015 against 0.188 --
+and correcting the incomplete seasons for how much their feed wrote down
+makes twenty seasons of both leagues agree too, 0.19 to 0.23 against raw
+shares spanning 0.18 to 0.69.
 
-- **The numerator can't be picked out.** No interception in either league says
-  how the ball got there. ESPN's parenthetical on an NFL interception is the
-  tackler on the return; NCAAFB gives the returner and the yards. 88 of 8,980
-  NFL interceptions and 0 of 47,543 NCAAFB ones carry any deflection marker at
-  all, so "interceptions off a tip" is not a population that can be selected.
-- **The denominator is a different animal, and the two leagues write it
-  differently.** The NFL says it in gamebook punctuation -- the parenthetical
-  on an *incompletion* is the pass defensed -- and says it completely: 0.093
-  to 0.109 of pass attempts every season since 2009. NCAAFB says it in words
-  ("broken up by") and said it unevenly until 2026, when its feed went
-  gamebook-shaped and its coverage reached the NFL's, 0.107 against 0.109.
-
-  Where both are complete they agree, and correcting the incomplete seasons
-  to the same coverage makes twenty seasons of both leagues agree too --
-  0.19 to 0.23, against raw shares spanning 0.18 to 0.69. So
-  `P(interception | a defender reached the ball)` is about **0.20** and the
-  instability was never in the football. `train.py rates` reports the raw
-  share, the coverage under it, and the corrected `implied_share`.
-
-  0.20 is a real number about a real population, and it is not quite this
-  one: a pass defensed is any ball a defender got to, tipped or not. It is
-  the number to build on if this kind ever grows into an adjustment over all
-  interceptions rather than tipped ones -- which needs the defended
-  incompletions adjusted alongside, or it is half an effect pointed one way.
-- **It costs almost nothing that this is guesswork**, because the kind hardly
-  fires: tip markers appear on 88 NFL interceptions across twenty seasons and
-  none at all in NCAAFB, and the NFL's annotation stopped -- zero in 2025.
+What that pair is not is a statement about *tipped* balls specifically. A
+pass defended is any ball a defender got to, and no interception in either
+league records whether one was deflected on the way -- 88 of 8,980 NFL picks
+and 0 of 47,543 NCAAFB ones carry a marker. The neighbouring question turned
+out to be the answerable one, and `retained` answers that instead.
 
 Estimates, then, not fits. They are a keyword argument everywhere they are
 used so that a caller who disagrees can say so at the call site rather than by
@@ -430,7 +429,8 @@ def lucky_wp(
       `0.25` of a full turnover swing to the offense, and none of that is in
       this total. Fumbles have no such gap -- both branches are in the text.
       A caller who wants the clean half of the number passes
-      `retained={**DEFAULT_RETAINED, LuckKind.TIPPED_INTERCEPTION: 1.0}`,
+      `retained={**DEFAULT_RETAINED, LuckKind.PASS_DEFENDED_INTERCEPTION: 1.0,
+      LuckKind.PASS_DEFENDED_INCOMPLETE: 1.0}`,
       which zeroes every tipped interception's contribution.
     - **The two branches are read at different moments.** `realized` is the
       next snap, after the clock ran and any points went up; the
@@ -539,11 +539,117 @@ def _priced_branches(
     ]
 
 
-# Words that say the ball was in the air off something other than the
-# receiver's hands. ESPN writes these into the play text in the clause about
-# the interception ("intercepted ... (tipped by ...)"), which is why the check
-# below is "an interception *and* one of these" rather than either alone.
-_TIP_MARKERS: tuple[str, ...] = ("tipped", "tip by", "deflect", "batted")
+# The two ways a feed says a defender got to a pass that stayed incomplete.
+#
+# In words, which is NCAAFB's way and the NFL's only before it stopped:
+DEFENDED_MARKERS: tuple[str, ...] = (
+    "broken up",
+    "broke up",
+    "break up",
+    "defensed",
+    "pass defended",
+    "deflect",
+    "tipped",
+    "tip by",
+    "batted",
+    "knocked down",
+    "knocked away",
+    "swatted",
+)
+
+# ...and in punctuation, which is the NFL's. Its text is gamebook text, where
+# a trailing parenthetical is the defender credited with the play:
+#
+#     J.Garcia pass incomplete short middle to E.Graham (B.James) [S.Bowen]
+#                                                        ^^^^^^^^  ^^^^^^^^
+#                                                        defensed   QB hit
+#
+# Only on incompletions. On a completion that same parenthetical is the
+# tackler, and on an interception it is the tackler on the return -- an
+# incomplete pass is the one case with nobody to tackle, which is what makes
+# the credit there unambiguous. The check that settles it rather than assuming
+# it: completions ending in a touchdown have no tackler either, and carry a
+# parenthetical 20% of the time against 82% for every other completion.
+#
+# The bracket is a QB hit and is deliberately not read: pressure is not a hand
+# on the ball. NCAAFB's "qb hurried by" is the same thing in words, and is
+# likewise absent from DEFENDED_MARKERS.
+_PAREN = re.compile(r"\(([^)]*)\)")
+_LEADING_CLOCK = re.compile(r"^\(\d+:\d+\)\s*")
+_DEFENDER_NAME = re.compile(r"^#?\d*\s?[A-Z][A-Za-z'\-]*\.\s?[A-Za-z'\-. ]+$")
+
+DEFENDED_RATE_FLOOR = 0.15
+"""
+The share of a game's incompletions that must name a defender for the pass
+pair to be adjusted in it. See `records_defended_passes`.
+"""
+
+MIN_INCOMPLETIONS = 10
+"""Below this a game has too few incompletions to say anything about its feed."""
+
+
+def records_defended_passes(
+    plays: Iterable[Play], *, floor: float = DEFENDED_RATE_FLOOR
+) -> bool:
+    """
+    Whether this game's play-by-play records defended passes at all.
+
+    The gate on `PASS_DEFENDED_*`, and the reason those kinds can be trusted
+    where they fire. Whether a feed writes down a broken-up pass is a property
+    of whoever entered the play-by-play, not of the football: in NCAAFB it
+    follows the *home venue*, and between 2019 and 2023 the number of venues
+    doing it fell from 168 to 41 -- of 224, with 127 dropping it and **none**
+    taking it up. The NFL has done it every season since 2009 and not at all
+    before.
+
+    A game where it isn't recorded still has all its interceptions, and
+    adjusting those alone is the one thing this module must not do: it would
+    charge every defense for its picks and credit none for the balls it got a
+    hand on. So the pair is adjusted where the game can support both sides and
+    left alone where it can't, and `luck_adjusted_game_control` is a smaller
+    adjustment on a game that says less. That is the honest shape for it --
+    the number is what the game can support, not a constant pretending the
+    evidence is even.
+
+    The test is a rate rather than presence because a venue that records
+    *some* of them would leak in proportion to what it missed. What says the
+    rate is enough: among games that pass this, defended passes outnumber
+    interceptions 3.5 to 4.9 to one in every league and season measured --
+    including NCAAFB 2022-24, where only a fifth of games pass. The balance
+    point is `(1 - retained) / retained` = 4. So the seasons that collapsed
+    lost whole games rather than fidelity within them, and a game that passes
+    in 2023 is worth what one in 2019 is.
+    """
+    incompletions = defended = 0
+    for play in plays:
+        text = (play.text or "").lower()
+        if not text or "no play" in text or "intercept" in text:
+            continue
+        if "incomplete" not in text:
+            continue
+        incompletions += 1
+        defended += is_defended_pass(play.text)
+    if incompletions < MIN_INCOMPLETIONS:
+        return False
+    return defended / incompletions >= floor
+
+
+def is_defended_pass(text: str | None) -> bool:
+    """
+    Whether an incomplete pass's text names the defender who got to the ball.
+
+    Public because measuring a feed and classifying a play have to agree about
+    what "defended" means -- `train.py rates` profiles the same predicate this
+    classifies on, so a season's reported coverage is the coverage the gate
+    will actually see.
+    """
+    lowered = (text or "").lower()
+    if any(marker in lowered for marker in DEFENDED_MARKERS):
+        return True
+    for inner in _PAREN.findall(_LEADING_CLOCK.sub("", text or "")):
+        if any(_DEFENDER_NAME.match(part.strip()) for part in inner.split(",")):
+            return True
+    return False
 
 
 def find_lucky_plays(
@@ -570,10 +676,11 @@ def find_lucky_plays(
     streamed. A fumble no witness can call is dropped instead of guessed at.
     """
     ordered = list(plays)
+    defended = records_defended_passes(ordered)
     lucky = []
     for index, next_offense in enumerate(_after(ordered)):
         play = ordered[index]
-        classified = _classify(play, next_offense)
+        classified = _classify(play, next_offense, defended)
         if classified is None:
             continue
         kind, changed_possession = classified
@@ -636,17 +743,24 @@ def _changed_possession(play: Play, next_offense: str | None) -> bool | None:
     return play.is_turnover
 
 
-def _classify(play: Play, next_offense: str | None) -> tuple[LuckKind, bool] | None:
+def _classify(
+    play: Play, next_offense: str | None, defended_recorded: bool
+) -> tuple[LuckKind, bool] | None:
     """The play's `LuckKind` and whether it turned the ball over, or None."""
     text = (play.text or "").lower()
     if not text or "no play" in text:
         return None
     if "intercept" in text:
-        if any(marker in text for marker in _TIP_MARKERS):
-            return LuckKind.TIPPED_INTERCEPTION, True
-        # An untipped interception is a decision, not a bounce. Returning
-        # here rather than falling through matters: an interception returned
-        # and fumbled has both words in it, and the interception is the play.
+        # Returning here rather than falling through matters: an interception
+        # returned and fumbled has both words in it, and the interception is
+        # the play. Unadjustable without the other side of its coin -- see
+        # `records_defended_passes`.
+        if defended_recorded:
+            return LuckKind.PASS_DEFENDED_INTERCEPTION, True
+        return None
+    if "incomplete" in text:
+        if defended_recorded and is_defended_pass(play.text):
+            return LuckKind.PASS_DEFENDED_INCOMPLETE, False
         return None
     if "fumble" in text:
         changed = _changed_possession(play, next_offense)

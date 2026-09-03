@@ -28,7 +28,6 @@ import asyncio
 import getpass
 import json
 import logging
-import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,9 +47,11 @@ from lucky_ones.bundled import RELEASE_DIR
 from lucky_ones.curve import game_control
 from lucky_ones.luck import (
     DEFAULT_RETAINED,
+    DEFENDED_MARKERS,
     LuckKind,
     adjusted_curve_from_states,
     find_lucky_plays,
+    is_defended_pass,
     lucky_wp_from_states,
 )
 from lucky_ones.metrics import brier_score, log_loss
@@ -333,42 +334,6 @@ DEFENDED_FAMILIES: dict[str, tuple[str, ...]] = {
 }
 
 
-# The NFL doesn't put it in words, it puts it in punctuation. Its play text
-# is gamebook text, where a trailing parenthetical is the defender credited
-# with the play and a bracket is the one who hit the passer:
-#
-#     J.Garcia pass incomplete short middle to E.Graham (B.James) [S.Bowen]
-#                                                        ^^^^^^^^  ^^^^^^^^
-#                                                        defensed   QB hit
-#
-# On a *completion* that parenthetical is the tackler, which is why this only
-# reads incompletions -- an incomplete pass has nobody to tackle, so the
-# credit there is the pass defensed. The check that settles it: completions
-# ending in a touchdown have no tackler either, and they carry a parenthetical
-# 20% of the time against 82% for every other completion.
-#
-# NCAAFB text is not gamebook text and has no parentheticals at all, and its
-# names have no initials, so `_NAME` cannot fire on it. That is intended: this
-# is an NFL reading, and the lexical families above are the college one.
-_PAREN = re.compile(r"\(([^)]*)\)")
-_LEADING_CLOCK = re.compile(r"^\(\d+:\d+\)\s*")
-_NAME = re.compile(r"^[A-Z][A-Za-z'\-]*\.\s?[A-Za-z'\-. ]+$")
-
-
-def _defensed_by_syntax(text: str) -> bool:
-    """
-    Whether an incomplete pass credits a defender, in the NFL's punctuation.
-
-    Name-shaped only: a parenthetical holding a penalty distance ("15 Yards")
-    or a formation note ("Shotgun") is not a defender, and both are common
-    enough that counting them would put a few points on the rate.
-    """
-    for inner in _PAREN.findall(_LEADING_CLOCK.sub("", text)):
-        if any(_NAME.match(part.strip()) for part in inner.split(",")):
-            return True
-    return False
-
-
 # What a complete feed records: defended passes per pass attempt. Two feeds
 # that share no code agree on it -- the NFL's gamebook parenthetical runs
 # 0.093-0.109 every season from 2009, and NCAAFB's "broken up by" hits 0.107
@@ -424,12 +389,15 @@ def rates(
 
     So the NFL share **is** measurable, at 0.20 combined over 2009-2025 and
     0.177-0.229 by season, drifting only as slowly as the interception rate
-    itself. What is still not measurable is the *tipped* share this file's
-    `retained` is nominally about: a pass defensed is any ball a defender got
-    to, and no interception in either league records whether one was tipped
-    on the way. 0.20 is `P(interception | a defender reached it)`, which is a
-    different and better-founded question than the one `TIPPED_INTERCEPTION`
-    asks.
+    itself -- and it is what `DEFAULT_RETAINED[PASS_DEFENDED_INTERCEPTION]` is
+    set from. What is *not* measurable is the tipped share specifically: a
+    pass defended is any ball a defender got to, and no interception in either
+    league records whether one was deflected on the way. The neighbouring
+    question turned out to be the answerable one.
+
+    `coverage` is also what `lucky_ones.luck.records_defended_passes` decides
+    on, one game at a time. A season whose coverage is low is a season where
+    most games will fail that gate and be adjusted for their fumbles only.
     """
     years = _parse_seasons(seasons)
     plays = asyncio.run(_load(_source(root), league, years, _parse_weeks(weeks)))
@@ -455,18 +423,21 @@ def rates(
             if intercepted:
                 passes[game.season]["interceptions"] += 1
                 continue
-            defended = False
+            if "incomplete" not in text:
+                continue
             for family, markers in DEFENDED_FAMILIES.items():
                 if any(marker in text for marker in markers):
                     passes[game.season][f"family:{family}"] += 1
-                    defended = True
-            if "incomplete" in text and _defensed_by_syntax(play.text or ""):
-                passes[game.season]["family:defensed_syntax"] += 1
-                defended = True
-            # One play can match two families and is still one defended pass.
-            # The family keys are prefixed because one of them is `broken_up`
-            # too, and a total sharing a key with a family counts twice.
-            if defended:
+            if not any(marker in text for marker in DEFENDED_MARKERS):
+                # Whatever caught it wasn't a word, so it was the punctuation.
+                if is_defended_pass(play.text):
+                    passes[game.season]["family:defensed_syntax"] += 1
+            # The total comes from the classifier's own predicate rather than
+            # from these families, so a season's reported coverage is the
+            # coverage `records_defended_passes` will see. The family keys are
+            # prefixed because one of them is `broken_up` too, and a total
+            # sharing a key with a family counts twice.
+            if is_defended_pass(play.text):
                 passes[game.season]["defended"] += 1
 
     print(
@@ -502,7 +473,6 @@ def _fumble_rates(per_season: dict[int, Counter]) -> dict:
         total.update(counts)
     return {
         **summarise(total),
-        "tipped_interceptions": total[LuckKind.TIPPED_INTERCEPTION.value],
         "by_season": {
             str(season): summarise(per_season[season]) for season in sorted(per_season)
         },
