@@ -121,12 +121,12 @@ DEFAULT_RETAINED: Mapping[LuckKind, float] = {
     # `train.py rates` is the measurement.
     LuckKind.FUMBLE_LOST: 0.5,
     LuckKind.FUMBLE_KEPT: 0.5,
-    # Measured too, and the same in both leagues: of the passes a defender is
-    # recorded as having reached, 0.20 are intercepted and 0.80 fall. NFL
-    # 2009-2025 gives 0.2015 and NCAAFB 2026 -- the first season its feed
-    # records them completely -- gives 0.188. Every NCAAFB season back to 2006
-    # agrees once corrected for how much its feed wrote down. Complements, for
-    # the same reason the fumbles are.
+    # Measured the same way, over the same kind of denominator: every
+    # contested pass, with the side of the coin being whether it was caught.
+    # Counted only in the games that record both sides (see
+    # `records_defended_passes`), NFL 2009-2025 gives 0.1931 and NCAAFB
+    # 2014-2026 gives 0.2069, and no single season of either strays outside
+    # 0.170-0.209. Complements, for the same reason the fumbles are.
     LuckKind.PASS_DEFENDED_INTERCEPTION: 0.20,
     LuckKind.PASS_DEFENDED_INCOMPLETE: 0.80,
 }
@@ -141,17 +141,19 @@ themselves (NFL 0.477, NCAAFB 0.540). Per-league values would be more honest
 and would have to be complements; a single shared pair is the reason this is
 one mapping rather than one per release.
 
-The pass pair is `P(interception | a defender reached the ball)` and its
-complement, and it is measured the same way -- with the wrinkle that the two
-leagues write "a defender reached it" in different alphabets. The NFL says it
-in gamebook punctuation, the parenthetical on an *incompletion*, and has said
-it completely since 2009: 0.093 to 0.109 of pass attempts every season.
-NCAAFB says it in words ("broken up by") and said it unevenly until 2026,
-when its feed went gamebook-shaped and its coverage reached the NFL's, 0.107
-against 0.109. Where both are complete they agree -- 0.2015 against 0.188 --
-and correcting the incomplete seasons for how much their feed wrote down
-makes twenty seasons of both leagues agree too, 0.19 to 0.23 against raw
-shares spanning 0.18 to 0.69.
+The pass pair is the fumble pair in a different hat. The denominator is every
+contested pass -- one a defender is recorded as having reached, intercepted or
+not -- exactly as every fumble is the denominator there, and the kind records
+which side came up: caught, or not caught. `P(intercepted | contested)` is
+0.1931 over NFL 2009-2025 and 0.2069 over NCAAFB 2014-2026, with no single
+season of either outside 0.170-0.209.
+
+Those are counted only in the games that record both sides, which is what
+makes them mean anything: a game whose feed writes down none of its breakups
+still writes down all of its interceptions, so leaving it in puts a numerator
+into the ratio with nothing underneath it. Ungated, NCAAFB 2023 reads 0.53
+against a gated 0.19. `records_defended_passes` is the same gate the
+classifier uses, so the measurement and the adjustment see the same games.
 
 What that pair is not is a statement about *tipped* balls specifically. A
 pass defended is any ball a defender got to, and no interception in either
