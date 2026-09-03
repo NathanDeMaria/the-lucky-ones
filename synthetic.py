@@ -26,10 +26,21 @@ SNAP_SECONDS = 30
 
 # Roughly a fumble every other drive, which is more than football has -- a
 # fixture with one bounce in it exercises `lucky_ones.luck` about as well as a
-# fixture with none. Both branches appear, because the module reads
-# `is_turnover` to tell them apart and a tree with only lost fumbles in it
-# would never exercise the other one.
+# fixture with none. Both branches appear, because the two are classified
+# differently and a tree with only lost fumbles in it would never exercise
+# the other one.
 FUMBLE_CHANCE = 0.02
+
+# Enough passes for `train.py rates` to have a denominator, with the two
+# things it counts on either side of it: a defended incompletion in the shape
+# NCAAFB writes ("broken up by"), and an interception, which `_classify`
+# deliberately leaves alone because an untipped one is a decision.
+PASS_CHANCE = 0.45
+BROKEN_UP_CHANCE = 0.08
+INTERCEPTION_CHANCE = 0.03
+
+# A drive is six snaps unless the ball changes hands first.
+DRIVE_SNAPS = 6
 
 
 def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
@@ -39,18 +50,28 @@ def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
     score and no possession, the way a real game does.
 
     A few plays carry fumble text, so `make curve` on this tree has something
-    for the luck adjustment to find. The text is the shape ESPN writes, not a
-    quote of it -- like everything else here, it's the shape that's real.
+    for the luck adjustment to find, and about half are passes so `make rates`
+    has a denominator. The text is the shape ESPN writes, not a quote of it --
+    like everything else here, it's the shape that's real.
+
+    Possession follows the text rather than a fixed cadence, which matters
+    since `lucky_ones.luck` reads the next snap's offense to decide whether a
+    fumble was lost: a tree where the two disagree would be a fixture arguing
+    with the code it exists to exercise.
     """
     rng = random.Random(seed)
     strength = rng.gauss(0, 10)
     rows: list[dict] = []
     home_score = away_score = 0
     play_number = 0
+    offense = home
+    drive_number = 1
+    drive_snaps = 0
     for period in (1, 2, 3, 4):
         for clock in range(PERIOD_SECONDS, 0, -SNAP_SECONDS):
             play_number += 1
-            offense = home if (play_number // 6) % 2 == 0 else away
+            drive_snaps += 1
+            defense = away if offense == home else home
             # Sharper than football, on purpose: a fixture whose scores don't
             # track the strength teaches the fit nothing.
             edge = strength if offense == home else -strength
@@ -60,9 +81,36 @@ def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
                     home_score += points
                 else:
                     away_score += points
+            passed = rng.random() < PASS_CHANCE
             fumbled = rng.random() < FUMBLE_CHANCE
             lost = fumbled and rng.random() < 0.5
-            recovered = away if offense == home else home
+            intercepted = (
+                passed and not fumbled and (rng.random() < INTERCEPTION_CHANCE)
+            )
+            broken_up = (
+                passed
+                and not fumbled
+                and not intercepted
+                and (rng.random() < BROKEN_UP_CHANCE)
+            )
+            if fumbled:
+                text = (
+                    f"{'Pass complete' if passed else 'Rush'} for 3 yards. "
+                    f"FUMBLE, recovered by {defense if lost else offense}."
+                )
+                play_type = "Pass Reception" if passed else "Rush"
+            elif intercepted:
+                text = "Pass intercepted."
+                play_type = "Pass Interception"
+            elif broken_up:
+                text = "Pass incomplete, broken up by a defender."
+                play_type = "Pass Incompletion"
+            elif passed:
+                text = "Pass complete for 6 yards"
+                play_type = "Pass Reception"
+            else:
+                text = "Rush for 3 yards"
+                play_type = "Rush"
             rows.append(
                 make_play(
                     game_id=game_id,
@@ -71,22 +119,21 @@ def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
                     period=period,
                     clock_seconds=clock,
                     offense_team_id=offense,
-                    defense_team_id=away if offense == home else home,
+                    defense_team_id=defense,
                     home_score=home_score,
                     away_score=away_score,
                     down=rng.randint(1, 4),
                     distance=rng.randint(1, 15),
                     yardline=rng.randint(1, 99),
-                    drive_number=1 + play_number // 6,
-                    text=(
-                        "Rush for 3 yards. FUMBLE, recovered by "
-                        f"{recovered if lost else offense}."
-                        if fumbled
-                        else "Rush for 3 yards"
-                    ),
-                    is_turnover=lost,
+                    play_type=play_type,
+                    drive_number=drive_number,
+                    text=text,
+                    is_turnover=lost or intercepted,
                 )
             )
+            if lost or intercepted or drive_snaps >= DRIVE_SNAPS:
+                offense, drive_snaps = defense, 0
+                drive_number += 1
     if home_score == away_score:
         # A tie has no label, and `build_training_set` drops it. Fine in real
         # data, a waste of a fixture game here.
@@ -106,7 +153,7 @@ def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
             home_score=home_score,
             away_score=away_score,
             play_type="End of Game",
-            drive_number=1 + play_number // 6,
+            drive_number=drive_number,
         )
     )
     return rows
