@@ -28,6 +28,7 @@ import asyncio
 import getpass
 import json
 import logging
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -316,11 +317,11 @@ def curve(
 #
 # Kept as families rather than one flat tuple to answer the question that
 # comes up every time the share moves: is the annotation going away, or is it
-# being written a different way? `rates` reports each family separately, and
-# the answer over this corpus is neither generous -- `broken_up` is the whole
-# union in NCAAFB and every other family is flat zero, while the NFL's union
-# never clears 0.7% of pass attempts and is exactly zero in 2006, 2007 and
-# 2025. There is no rename to find. See `rates`.
+# being written a different way? `rates` reports each family separately.
+# NCAAFB's answer is that `broken_up` is the whole union and every other
+# family is flat zero, so its swings are annotation genuinely coming and
+# going. The NFL's is that none of these phrases is how it says it -- see
+# `_defensed_by_syntax`, which is.
 DEFENDED_FAMILIES: dict[str, tuple[str, ...]] = {
     "broken_up": ("broken up", "broke up", "break up"),
     "defensed": ("defensed", "pass defended", "defended by", "pbu"),
@@ -330,6 +331,42 @@ DEFENDED_FAMILIES: dict[str, tuple[str, ...]] = {
     "knocked": ("knocked down", "knocked away", "knocked loose"),
     "swatted": ("swatted", "punched away", "slapped away"),
 }
+
+
+# The NFL doesn't put it in words, it puts it in punctuation. Its play text
+# is gamebook text, where a trailing parenthetical is the defender credited
+# with the play and a bracket is the one who hit the passer:
+#
+#     J.Garcia pass incomplete short middle to E.Graham (B.James) [S.Bowen]
+#                                                        ^^^^^^^^  ^^^^^^^^
+#                                                        defensed   QB hit
+#
+# On a *completion* that parenthetical is the tackler, which is why this only
+# reads incompletions -- an incomplete pass has nobody to tackle, so the
+# credit there is the pass defensed. The check that settles it: completions
+# ending in a touchdown have no tackler either, and they carry a parenthetical
+# 20% of the time against 82% for every other completion.
+#
+# NCAAFB text is not gamebook text and has no parentheticals at all, and its
+# names have no initials, so `_NAME` cannot fire on it. That is intended: this
+# is an NFL reading, and the lexical families above are the college one.
+_PAREN = re.compile(r"\(([^)]*)\)")
+_LEADING_CLOCK = re.compile(r"^\(\d+:\d+\)\s*")
+_NAME = re.compile(r"^[A-Z][A-Za-z'\-]*\.\s?[A-Za-z'\-. ]+$")
+
+
+def _defensed_by_syntax(text: str) -> bool:
+    """
+    Whether an incomplete pass credits a defender, in the NFL's punctuation.
+
+    Name-shaped only: a parenthetical holding a penalty distance ("15 Yards")
+    or a formation note ("Shotgun") is not a defender, and both are common
+    enough that counting them would put a few points on the rate.
+    """
+    for inner in _PAREN.findall(_LEADING_CLOCK.sub("", text)):
+        if any(_NAME.match(part.strip()) for part in inner.split(",")):
+            return True
+    return False
 
 
 def rates(
@@ -367,13 +404,23 @@ def rates(
     measurement of the annotation, so read `coverage` first and the share
     second, or not at all.
 
-    `by_family` is there to answer the obvious follow-up -- whether a season
-    that stopped saying "broken up by" started saying something else, in
-    which case the union would be steady even though one family wasn't. It
-    doesn't: in NCAAFB `broken_up` is the entire union and every other family
-    is zero, and the NFL's whole union peaks at 0.67% of pass attempts and is
-    zero outright in 2006, 2007 and 2025. Widening the denominator does not
-    rescue it, which is worth being able to re-check rather than remember.
+    `by_family` splits the denominator by what caught it, and the split is
+    the interesting part, because the two leagues answer in different
+    alphabets. NCAAFB says it in words and unreliably: `broken_up` is its
+    entire union, no other family ever fires, and coverage swings by a factor
+    of four between seasons. The NFL says it in punctuation and steadily --
+    `defensed_syntax`, the gamebook parenthetical on an incompletion, runs
+    0.093 to 0.109 of pass attempts every season from 2009 on, which is a
+    real pass-defensed rate.
+
+    So the NFL share **is** measurable, at 0.20 combined over 2009-2025 and
+    0.177-0.229 by season, drifting only as slowly as the interception rate
+    itself. What is still not measurable is the *tipped* share this file's
+    `retained` is nominally about: a pass defensed is any ball a defender got
+    to, and no interception in either league records whether one was tipped
+    on the way. 0.20 is `P(interception | a defender reached it)`, which is a
+    different and better-founded question than the one `TIPPED_INTERCEPTION`
+    asks.
     """
     years = _parse_seasons(seasons)
     plays = asyncio.run(_load(_source(root), league, years, _parse_weeks(weeks)))
@@ -404,6 +451,9 @@ def rates(
                 if any(marker in text for marker in markers):
                     passes[game.season][f"family:{family}"] += 1
                     defended = True
+            if "incomplete" in text and _defensed_by_syntax(play.text or ""):
+                passes[game.season]["family:defensed_syntax"] += 1
+                defended = True
             # One play can match two families and is still one defended pass.
             # The family keys are prefixed because one of them is `broken_up`
             # too, and a total sharing a key with a family counts twice.
@@ -474,7 +524,7 @@ def _defended_rates(per_season: dict[int, Counter]) -> dict:
             "defended": defended_passes,
             "by_family": {
                 family: counts[f"family:{family}"]
-                for family in DEFENDED_FAMILIES
+                for family in (*DEFENDED_FAMILIES, "defensed_syntax")
                 if counts[f"family:{family}"]
             },
             "coverage": round(defended_passes / attempts, 4) if attempts else None,

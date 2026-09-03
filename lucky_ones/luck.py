@@ -137,12 +137,21 @@ one mapping rather than one per release.
   tackler on the return; NCAAFB gives the returner and the yards. 88 of 8,980
   NFL interceptions and 0 of 47,543 NCAAFB ones carry any deflection marker at
   all, so "interceptions off a tip" is not a population that can be selected.
-- **The denominator is annotation, not football.** Passes a defender reached
-  are only partly written down, and how partly moves by a factor of four
-  between seasons while the interception rate barely moves -- so the share
-  slides from 0.19 to 0.56 across the corpus for reasons that are about data
-  entry. Read against the best-covered seasons it lands in the low 0.2s, which
-  is the only real evidence for the 0.25 here.
+- **The denominator is a different animal, and it is league-dependent.**
+  NCAAFB writes "broken up by" and does it unevenly -- coverage swings by a
+  factor of four between seasons while the interception rate holds still, so
+  its share slides from 0.19 to 0.56 for reasons that are about data entry.
+  The NFL doesn't say it in words at all; it says it in gamebook punctuation,
+  where the parenthetical on an *incompletion* is the pass defensed. That one
+  is steady -- 0.093 to 0.109 of pass attempts every season since 2009 -- and
+  gives `P(interception | a defender reached it)` = **0.20**, range
+  0.177-0.229. `train.py rates` reports both.
+
+  0.20 is a real number about a real population, and it is not quite this
+  one: a pass defensed is any ball a defender got to, tipped or not. It is
+  the number to build on if this kind ever grows into an adjustment over all
+  interceptions rather than tipped ones -- which needs the defended
+  incompletions counted too, or it is half an effect pointed one way.
 - **It costs almost nothing that this is guesswork**, because the kind hardly
   fires: tip markers appear on 88 NFL interceptions across twenty seasons and
   none at all in NCAAFB, and the NFL's annotation stopped -- zero in 2025.
