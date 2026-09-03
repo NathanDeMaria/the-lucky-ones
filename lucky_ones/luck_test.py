@@ -162,6 +162,128 @@ def test_the_weights_are_a_keyword_not_a_constant():
     assert lucky.retained == 0.9
 
 
+def _possession(*plays) -> GamePlays:
+    """
+    A game of snaps that say who had the ball, for the possession witness.
+
+    Each argument is `(offense, text, is_turnover)`. `_snaps` leaves every
+    play with the same offense, which is the right default for the tests that
+    are about text -- these are the ones about what happened after.
+    """
+    return _game(
+        [
+            make_play(
+                play_id=f"p{number}",
+                play_number=number,
+                clock_seconds=900 - 30 * number,
+                offense_team_id=offense,
+                defense_team_id="away" if offense == "home" else "home",
+                text=text,
+                is_turnover=is_turnover,
+            )
+            for number, (offense, text, is_turnover) in enumerate(plays, start=1)
+        ]
+    )
+
+
+# --- Who ended up with the ball ----------------------------------------
+
+
+def test_a_sack_fumble_the_defense_recovered_is_a_lost_fumble():
+    """
+    The bug the second witness is here for. `is_turnover` is false on a sack
+    the defense stripped and recovered -- systematically, in both leagues --
+    and taking it at its word prices the wrong branch: it would build the
+    counterfactual where the offense *lost* the ball it already lost.
+    """
+    game = _possession(
+        ("home", None, False),
+        ("home", "A.Dalton sacked. FUMBLES, RECOVERED by SEA-A.Woods.", False),
+        ("away", None, False),
+    )
+
+    (lucky,) = find_lucky_plays(game.plays)
+
+    assert lucky.kind is LuckKind.FUMBLE_LOST
+    assert lucky.changed_possession is True
+
+
+def test_a_fumble_the_offense_kept_still_reads_as_kept():
+    """The other half: the next snap is the same team's, so nothing changed."""
+    game = _possession(
+        ("home", None, False),
+        ("home", "K.Cousins FUMBLES (Aborted) at MIN 27, and recovers.", False),
+        ("home", None, False),
+    )
+
+    (lucky,) = find_lucky_plays(game.plays)
+
+    assert lucky.kind is LuckKind.FUMBLE_KEPT
+    assert lucky.changed_possession is False
+
+
+def test_a_turnover_flag_that_says_yes_is_taken_at_its_word():
+    """
+    Only the false is checked. The column has no false positives worth
+    guarding against, and trusting the yes is what lets a fumble on the last
+    play of a game -- nothing after it to witness -- still be classified.
+    """
+    game = _possession(("home", "FUMBLE, recovered by DAL.", True))
+
+    (lucky,) = find_lucky_plays(game.plays)
+
+    assert lucky.kind is LuckKind.FUMBLE_LOST
+
+
+def test_a_null_turnover_flag_is_answered_by_the_next_snap():
+    """
+    Previously dropped outright. NCAAFB before 2014 is the case: the column
+    is no help, and the next snap says plainly who has the ball.
+    """
+    game = _possession(
+        ("home", "Shai Werts fumbled, recovered by LSU Patrick Queen", None),
+        ("away", None, False),
+    )
+
+    (lucky,) = find_lucky_plays(game.plays)
+
+    assert lucky.kind is LuckKind.FUMBLE_LOST
+
+
+def test_a_fumble_no_witness_can_call_is_still_dropped():
+    """Nothing after it and a null column -- guessing is worse than skipping."""
+    game = _possession(("home", "Barkley rush for 3 yards. FUMBLE.", None))
+
+    assert find_lucky_plays(game.plays) == []
+
+
+def test_the_plays_between_do_not_confuse_the_witness():
+    """
+    A timeout has no offense at all, so the witness looks past it to the next
+    real snap rather than reading the gap as a change of possession.
+    """
+    game = _game(
+        [
+            make_play(play_id="p1", play_number=1, offense_team_id="home"),
+            make_play(
+                play_id="p2",
+                play_number=2,
+                offense_team_id="home",
+                text="Hurts rush. FUMBLE, recovered by PHI.",
+                is_turnover=False,
+            ),
+            make_play(
+                play_id="p3", play_number=3, offense_team_id=None, play_type="Timeout"
+            ),
+            make_play(play_id="p4", play_number=4, offense_team_id="home"),
+        ]
+    )
+
+    (lucky,) = find_lucky_plays(game.plays)
+
+    assert lucky.kind is LuckKind.FUMBLE_KEPT
+
+
 # --- The counterfactual ------------------------------------------------
 
 

@@ -39,6 +39,13 @@ train:
 	uv run python train.py train $(ARGS)
 
 
+# The rates behind DEFAULT_RETAINED, per season, as JSON -- what a `retained`
+# is worth arguing about and what it isn't:
+#   make rates ARGS="--league ncaafb --seasons 2006-2025 --root ./plays"
+rates:
+	uv run python train.py rates $(ARGS)
+
+
 # One game's curve and its game control, as JSON, through the bundled fit --
 # the eyeball check on a release: `make curve ARGS="401671789 --week 3"`.
 # `--model PATH` reads one from a file instead.
@@ -54,4 +61,4 @@ plays:
 	aws s3 sync s3://${BUCKET}/processed/plays ./plays
 
 
-.PHONY: lint check test wheel train curve plays
+.PHONY: lint check test wheel train curve rates plays

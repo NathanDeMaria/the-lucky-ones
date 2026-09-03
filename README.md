@@ -144,6 +144,10 @@ make curve ARGS="401671789 --week 3"
              "luck_adjusted_win_probability": 0.464}, ...]}
 ```
 
+`make rates` is the third entry point, and the one that answers "why those
+numbers?" for `DEFAULT_RETAINED` — see [What counts, and what it's
+worth](#what-counts-and-what-its-worth).
+
 No AWS and no data at all? `synthetic.py` writes a football-shaped tree in
 the same layout, which is what the tests train on:
 
@@ -304,9 +308,41 @@ that happens.
 | `fumble_kept` | 0.5 | the same coin, seen from the side that got away with one |
 | `tipped_interception` | 0.25 | a ball off a hand or a helmet falls incomplete far more often than a defender comes down with it |
 
-Those are estimates, not fits — there's no labelled set of counterfactual
-fumbles to fit them on. They're a keyword argument everywhere they're used, so
-a caller who disagrees says so at the call site:
+The fumble pair is measured; the tipped one can't be. `make rates` is the
+measurement:
+
+```sh
+make rates ARGS="--league ncaafb --seasons 2006-2025 --root ./plays"
+```
+
+It counts through `find_lucky_plays`, so what comes back is the rate over the
+population the model actually adjusts rather than a second opinion about which
+plays those are. Over the corpus in `./plays`:
+
+| | fumbles classified | changed hands | per-season range |
+| --- | --- | --- | --- |
+| NFL 2008–2025 | 10,262 | **0.477** | 0.427 – 0.508 |
+| NCAAFB 2006–2026 | 61,806 | **0.540** | 0.519 – 0.581 |
+
+So the coin really is close to fair, and 0.5 is within four points of both —
+closer than the leagues are to each other. The two fumble entries are a
+**pair**: one coin seen from its two sides, so they have to sum to 1. 0.5/0.5
+gets that for free; any measured pair has to be held to it, and would have to
+be per-league.
+
+`tipped_interception` is a guess, and `make rates` prints why rather than
+pretending otherwise. The numerator can't be selected — no interception in
+either league records how the ball got there, and 88 of 8,980 NFL picks and 0
+of 47,543 NCAAFB ones carry any deflection marker. The denominator is
+annotation rather than football: `coverage` (defended incompletions per
+attempt) moves by a factor of four between seasons while the interception rate
+holds still, dragging the share from 0.19 to 0.56 with it. Read against the
+best-covered seasons it lands in the low 0.2s, which is the only real support
+for the 0.25 — and it costs little that this is guesswork, for the reason
+under [Lucky WP](#the-one-thing-to-watch).
+
+They're a keyword argument everywhere they're used, so a caller who disagrees
+says so at the call site:
 
 ```python
 from lucky_ones.luck import DEFAULT_RETAINED, LuckKind
@@ -334,11 +370,12 @@ untipped interceptions (a throw into coverage is a decision).
   one does. The game had a winner; this is a counterfactual, and its last point
   is where the game *would* have stood.
 - **Symmetric in what it can see.** A fumble the offense recovered is in the
-  play text, so a team that got away with one is charged for it. A pass that
-  was tipped and *not* intercepted mostly isn't in the text at all, so it
-  can't be. That's a real gap; what keeps it from being fatal is that a
-  near-miss's realized swing is already near zero — what's missing is the
-  discount on the other side of the same coin, which is small.
+  play text, so a team that got away with one is charged for it — both
+  branches are recorded, which is what makes the fumble half of this sound. A
+  tipped pass isn't: the interception is in the text and the drop mostly
+  isn't. What keeps that from mattering is how rarely it comes up at all —
+  tip markers appear on 88 NFL interceptions across twenty seasons, none in
+  NCAAFB ever, and the NFL's annotation stopped (zero in 2025).
 - **A change to the model.** The fit is untouched. This reweights the curve
   that fit produces; nothing here is retrained, and no release changes.
 
@@ -399,21 +436,20 @@ that `net` alone reports identically.
 
 ### The one thing to watch
 
-**The tipped balls are counted one-sidedly, and here that costs more than it
-does next door.** A tipped pass that *was* intercepted is in ESPN's play text;
-one that bounced off a helmet and fell incomplete mostly isn't. So a defense is
-charged for the tips that went its way, and an offense is never credited for
-the ones that didn't — and a dropped tip is worth 0.25 of a full turnover swing,
-which is not a rounding error.
+**The tipped balls are counted one-sidedly, and in a running total that costs
+more than it does next door.** A tipped pass that *was* intercepted is in
+ESPN's play text; one that bounced off a helmet and fell incomplete mostly
+isn't. So a defense is charged for the tips that went its way and an offense is
+never credited for the ones that didn't — and a dropped tip is worth 0.25 of a
+full turnover swing. In `luck_adjusted_game_control` a missing play shifts a
+curve a little; in a sum it's a one-way leak.
 
-In `luck_adjusted_game_control` a missing play shifts a curve a little. In a
-running total it's a one-way leak. Fumbles have no such gap: both branches are
-in the text, so `fumble_lost` and `fumble_kept` are both found and both
-charged.
-
-If you want only the half with both branches observed, turn the tipped balls
-off — `retained=1.0` zeroes a kind's contribution without removing it from the
-report:
+The saving grace is arithmetic rather than design: **the kind barely fires.**
+Across the whole corpus it lands on 88 NFL interceptions in twenty seasons and
+zero NCAAFB ones, and the NFL annotation has stopped — none at all in 2025. So
+the leak is real, and the population it leaks over is a handful of plays a
+decade. If you'd rather it were exactly zero, `retained=1.0` zeroes the kind's
+contribution while still reporting the plays:
 
 ```python
 from lucky_ones.luck import DEFAULT_RETAINED, LuckKind
@@ -422,6 +458,16 @@ MODELS.NFL.lucky_wp(
     game, retained={**DEFAULT_RETAINED, LuckKind.TIPPED_INTERCEPTION: 1.0}
 )
 ```
+
+Fumbles carry essentially the whole number, then, and they're the half that
+holds up: both branches are written down, the rate is measured rather than
+assumed, and which branch happened is settled by two witnesses rather than one.
+That last part matters more than it sounds. `is_turnover` alone is wrong on 17%
+of NFL fumbles and 34% of NCAAFB ones — nearly always a false negative on a
+sack the defense stripped and recovered, and in NCAAFB before 2014 the column
+is uniformly false — so the code trusts it when it says yes and checks the next
+snap's offense when it says no. Getting that backwards prices the branch that
+already happened.
 
 One more approximation worth knowing, shared with the number next door: the
 realized branch is read off the *next* snap, after the clock ran and any points

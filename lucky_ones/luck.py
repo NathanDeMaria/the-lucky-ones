@@ -105,25 +105,54 @@ class LuckKind(StrEnum):
 
 
 DEFAULT_RETAINED: Mapping[LuckKind, float] = {
-    # Loose-ball recovery is close enough to a coin flip that the NFL's
-    # aggregate rate is the coin: neither side recovers its own fumbles at a
-    # rate that holds up year over year. Same number both ways, because it is
-    # the same coin seen from the two sides.
+    # Measured, and it really is a coin: over the plays this module classifies,
+    # the ball changed hands on 0.477 of NFL fumbles (2008-2025) and 0.540 of
+    # NCAAFB ones (2006-2026), each stable to a few points every season.
+    # `train.py rates` is the measurement.
     LuckKind.FUMBLE_LOST: 0.5,
     LuckKind.FUMBLE_KEPT: 0.5,
-    # A ball off a hand or a helmet falls incomplete far more often than a
-    # defender comes down with it, so an interception is the unlikely branch
-    # and keeps the smaller share of its swing.
+    # Not measured, because it cannot be from this source -- see below. A ball
+    # off a hand or a helmet falls incomplete far more often than a defender
+    # comes down with it, and what evidence there is puts the share in the low
+    # 0.2s, so an interception is the unlikely branch and keeps the smaller
+    # part of its swing.
     LuckKind.TIPPED_INTERCEPTION: 0.25,
 }
 """
 How much of each kind's swing is real, as `P(the outcome that happened)`.
 
-Estimates, not fits -- there is no labelled set of counterfactual fumbles to
-fit them on. They are a keyword argument everywhere they are used so that a
-caller who disagrees can say so at the call site rather than by editing this
-file, and so that `retained=1.0` for every kind reproduces the unadjusted
-curve exactly, which is what `luck_test` checks.
+The two fumble entries are a **pair, not two numbers**: they are the same coin
+from its two sides, so whatever they are they have to sum to 1. 0.5/0.5
+satisfies that for free, and it is also within four points of the measurement
+in both leagues, which is closer than the difference between the leagues
+themselves (NFL 0.477, NCAAFB 0.540). Per-league values would be more honest
+and would have to be complements; a single shared pair is the reason this is
+one mapping rather than one per release.
+
+`TIPPED_INTERCEPTION` is a different kind of number, and the honest label is
+*unfalsifiable from this data*:
+
+- **The numerator can't be picked out.** No interception in either league says
+  how the ball got there. ESPN's parenthetical on an NFL interception is the
+  tackler on the return; NCAAFB gives the returner and the yards. 88 of 8,980
+  NFL interceptions and 0 of 47,543 NCAAFB ones carry any deflection marker at
+  all, so "interceptions off a tip" is not a population that can be selected.
+- **The denominator is annotation, not football.** Passes a defender reached
+  are only partly written down, and how partly moves by a factor of four
+  between seasons while the interception rate barely moves -- so the share
+  slides from 0.19 to 0.56 across the corpus for reasons that are about data
+  entry. Read against the best-covered seasons it lands in the low 0.2s, which
+  is the only real evidence for the 0.25 here.
+- **It costs almost nothing that this is guesswork**, because the kind hardly
+  fires: tip markers appear on 88 NFL interceptions across twenty seasons and
+  none at all in NCAAFB, and the NFL's annotation stopped -- zero in 2025.
+
+Estimates, then, not fits. They are a keyword argument everywhere they are
+used so that a caller who disagrees can say so at the call site rather than by
+editing this file, and so that `retained=1.0` for every kind reproduces the
+unadjusted curve exactly, which is what `luck_test` checks. `retained=1.0` for
+one kind is also how a caller drops that kind without dropping it from the
+report -- the escape hatch `lucky_wp` points at.
 """
 
 
@@ -143,9 +172,9 @@ class LuckyPlay(NamedTuple):
 
     What picks the branch to price: the counterfactual to a fumble that was
     lost is the offense keeping it, and the counterfactual to one that was
-    recovered is the other team taking over. Read from `Play.is_turnover`
-    rather than from the kind, because the schema's own column is a better
-    witness than a keyword in a sentence.
+    recovered is the other team taking over. Getting it backwards prices the
+    wrong branch, which is worse than not adjusting the play, so it is read
+    from two witnesses rather than one -- see `_changed_possession`.
     """
 
 
@@ -523,14 +552,15 @@ def find_lucky_plays(
     a fumble wiped out by a penalty never happened, and its win probability
     swing is a penalty's, not a bounce's.
 
-    Whether the ball changed hands comes from `is_turnover` rather than the
-    text. A fumble whose `is_turnover` is null is dropped instead of guessed
-    at -- getting that backwards prices the wrong branch, which is worse than
-    not adjusting the play at all.
+    Whether the ball changed hands is `_changed_possession`, which needs the
+    play after this one -- so `plays` is materialised here rather than
+    streamed. A fumble no witness can call is dropped instead of guessed at.
     """
+    ordered = list(plays)
     lucky = []
-    for play in plays:
-        classified = _classify(play)
+    for index, next_offense in enumerate(_after(ordered)):
+        play = ordered[index]
+        classified = _classify(play, next_offense)
         if classified is None:
             continue
         kind, changed_possession = classified
@@ -546,7 +576,54 @@ def find_lucky_plays(
     return lucky
 
 
-def _classify(play: Play) -> tuple[LuckKind, bool] | None:
+def _after(plays: Sequence[Play]) -> list[str | None]:
+    """
+    For each play, the offense of the next play that has one.
+
+    One backward pass rather than a scan per play, and it skips the plays
+    with no offense at all (a timeout, the end of a quarter) so that the
+    witness below sees the next real snap rather than a gap.
+    """
+    following: list[str | None] = [None] * len(plays)
+    seen: str | None = None
+    for index in range(len(plays) - 1, -1, -1):
+        following[index] = seen
+        if plays[index].offense_team_id is not None:
+            seen = plays[index].offense_team_id
+    return following
+
+
+def _changed_possession(play: Play, next_offense: str | None) -> bool | None:
+    """
+    Whether the ball changed hands, from the two witnesses there are.
+
+    `is_turnover` is trusted when it says yes and checked when it says no,
+    which is not a hedge -- it is the shape of the column's error. Over
+    NFL 2008-2025 and NCAAFB 2006-2026 it disagrees with the possession the
+    next snap actually shows on 17% and 34% of fumbles respectively, and
+    almost every one of those is a false *negative*: a sack-fumble the
+    defense recovered, written `FUMBLES ... RECOVERED by <the other team>`
+    in the text and `is_turnover = false` in the column. In NCAAFB 2006-2013
+    the column is uniformly false, so on its own it calls every fumble in
+    eight seasons a recovery.
+
+    The second witness is the next snap's offense, which is what possession
+    means. It has one failure of its own -- a fourth-down fumble the offense
+    recovered short of the sticks hands the ball over on downs, so the next
+    snap is the other team's and this reads it as lost. Rare enough against
+    a column that is wrong on a fifth of the population.
+
+    None when neither witness can say: no offense on the play, nothing after
+    it, and a null column.
+    """
+    if play.is_turnover:
+        return True
+    if play.offense_team_id is not None and next_offense is not None:
+        return next_offense != play.offense_team_id
+    return play.is_turnover
+
+
+def _classify(play: Play, next_offense: str | None) -> tuple[LuckKind, bool] | None:
     """The play's `LuckKind` and whether it turned the ball over, or None."""
     text = (play.text or "").lower()
     if not text or "no play" in text:
@@ -559,11 +636,10 @@ def _classify(play: Play) -> tuple[LuckKind, bool] | None:
         # and fumbled has both words in it, and the interception is the play.
         return None
     if "fumble" in text:
-        if play.is_turnover is None:
+        changed = _changed_possession(play, next_offense)
+        if changed is None:
             return None
-        return (
-            LuckKind.FUMBLE_LOST if play.is_turnover else LuckKind.FUMBLE_KEPT
-        ), bool(play.is_turnover)
+        return (LuckKind.FUMBLE_LOST if changed else LuckKind.FUMBLE_KEPT), changed
     return None
 
 

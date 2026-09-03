@@ -12,7 +12,7 @@ import pytest
 
 from lucky_ones.release import WinProbabilityRelease
 from synthetic import write_tree
-from train import _parse_seasons, _parse_weeks, curve, train
+from train import _parse_seasons, _parse_weeks, curve, rates, train
 
 
 @pytest.fixture(name="tree")
@@ -134,3 +134,43 @@ def test_curve_prints_what_the_bounces_were_worth(tmp_path, tree, capsys):
     assert sum(
         abs(play["home_delta"]) for play in payload["lucky_plays"]
     ) == pytest.approx(breaks["home"] + breaks["away"])
+
+
+def test_rates_measures_the_fumble_coin(tree, capsys):
+    """
+    The measurement behind `DEFAULT_RETAINED[FUMBLE_LOST]`, run end to end.
+
+    It counts through `find_lucky_plays`, so what comes out is the rate over
+    the population the model actually adjusts rather than a second opinion
+    about which plays those are.
+    """
+    rates(league="nfl", seasons="2025", root=str(tree))
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["retained_in_use"]["fumble_lost"] == 0.5
+    fumbles = payload["fumbles"]
+    assert fumbles["classified"] > 0, "the fixture should contain some fumbles"
+    # The pair, which is the constraint on any value these could be given.
+    assert fumbles["lost"] + fumbles["kept"] == pytest.approx(1.0, abs=1e-3)
+    assert "2025" in fumbles["by_season"]
+
+
+def test_rates_reports_coverage_next_to_the_share_that_depends_on_it(tree, capsys):
+    """
+    `interception_share` is only ever as good as `coverage`, so they are
+    reported together. On real data the second moves by a factor of four
+    between seasons while the interception rate holds still, which is the
+    whole reason `DEFAULT_RETAINED[TIPPED_INTERCEPTION]` is a guess.
+    """
+    rates(league="nfl", seasons="2025", root=str(tree))
+
+    defended = json.loads(capsys.readouterr().out)["defended_passes"]
+    assert defended["attempts"] > 0
+    assert defended["broken_up"] > 0, "the fixture should defend some passes"
+    assert defended["coverage"] == pytest.approx(
+        defended["broken_up"] / defended["attempts"], abs=1e-4
+    )
+    assert defended["interception_share"] == pytest.approx(
+        defended["interceptions"] / (defended["interceptions"] + defended["broken_up"]),
+        abs=1e-4,
+    )

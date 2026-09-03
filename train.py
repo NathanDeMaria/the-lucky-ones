@@ -28,6 +28,7 @@ import asyncio
 import getpass
 import json
 import logging
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -45,6 +46,8 @@ from lucky_ones.arrow import DatasetPlaySource, StorePlaySource
 from lucky_ones.bundled import RELEASE_DIR
 from lucky_ones.curve import game_control
 from lucky_ones.luck import (
+    DEFAULT_RETAINED,
+    LuckKind,
     adjusted_curve_from_states,
     find_lucky_plays,
     lucky_wp_from_states,
@@ -306,6 +309,155 @@ def curve(
     )
 
 
+# Not a classifier -- nothing in `lucky_ones` reads these. They are the only
+# phrases ESPN writes when a defender got a hand on a pass that stayed
+# incomplete, which makes them the only denominator on offer for
+# `LuckKind.TIPPED_INTERCEPTION`. See `rates`, and what it has to say about
+# how far that denominator can be trusted.
+DEFENDED_MARKERS: tuple[str, ...] = (
+    "broken up",
+    "defensed",
+    "knocked down",
+    "knocked away",
+    "pass defended",
+)
+
+
+def rates(
+    league: str = "nfl",
+    seasons: str = "2025",
+    weeks: str | None = None,
+    root: str | None = None,
+) -> None:
+    """
+    Measure the rates behind `DEFAULT_RETAINED`, per season, as JSON.
+
+        make rates ARGS="--league ncaafb --seasons 2006-2025 --root ./plays"
+
+    `retained` is `P(the outcome that happened)`, and the two kinds it covers
+    are on very different footing. This prints both so the difference is
+    visible rather than argued about.
+
+    **Fumbles: measurable, and this is the measurement.** It counts through
+    `find_lucky_plays` rather than re-deriving anything, so `lost` is the rate
+    over exactly the population the model adjusts, witnessed the way the
+    shipped code witnesses it. `lost` is `retained[FUMBLE_LOST]` and its
+    complement is `retained[FUMBLE_KEPT]` -- the two are a pair and have to
+    sum to 1, which is the constraint 0.5/0.5 satisfies for free and any
+    measured pair has to be held to.
+
+    **Tipped interceptions: not measurable, and `coverage` is why.** The
+    numerator would be interceptions off a deflection and the denominator
+    every pass a defender got to. Neither is in the data. No interception in
+    either league says how the ball got there -- ESPN's parenthetical on an
+    NFL interception is the tackler on the return -- and the denominator is
+    only ever partly written down: `coverage` is how often a season's text
+    marks a defended incompletion at all, and `interception_share` moves
+    inversely with it across the whole corpus while the interception rate
+    barely moves. A share computed against half-recorded breakups is a
+    measurement of the annotation, so read `coverage` first and the share
+    second, or not at all.
+    """
+    years = _parse_seasons(seasons)
+    plays = asyncio.run(_load(_source(root), league, years, _parse_weeks(weeks)))
+    if not plays:
+        raise ValueError(f"No {league} plays in {seasons}")
+
+    fumbles: dict[int, Counter] = defaultdict(Counter)
+    passes: dict[int, Counter] = defaultdict(Counter)
+    for game in group_by_game(plays):
+        for lucky in find_lucky_plays(game.plays):
+            fumbles[game.season][lucky.kind.value] += 1
+        for play in game.plays:
+            text = (play.text or "").lower()
+            if not text or "no play" in text:
+                continue
+            intercepted = "intercept" in text
+            kind = (play.play_type or "").lower()
+            # Sacks carry "pass" in the text often enough to matter and are
+            # not attempts; an interception is one however it is typed.
+            if intercepted or ("pass" in kind and "sack" not in kind):
+                passes[game.season]["attempts"] += 1
+            if intercepted:
+                passes[game.season]["interceptions"] += 1
+            elif any(marker in text for marker in DEFENDED_MARKERS):
+                passes[game.season]["broken_up"] += 1
+
+    print(
+        json.dumps(
+            {
+                "league": league,
+                "seasons": years,
+                "retained_in_use": {
+                    kind.value: weight for kind, weight in DEFAULT_RETAINED.items()
+                },
+                "fumbles": _fumble_rates(fumbles),
+                "defended_passes": _defended_rates(passes),
+            },
+            indent=2,
+        )
+    )
+
+
+def _fumble_rates(per_season: dict[int, Counter]) -> dict:
+    """`retained[FUMBLE_LOST]` and its complement, overall and by season."""
+
+    def summarise(counts: Counter) -> dict:
+        lost = counts[LuckKind.FUMBLE_LOST.value]
+        classified = lost + counts[LuckKind.FUMBLE_KEPT.value]
+        return {
+            "classified": classified,
+            "lost": round(lost / classified, 4) if classified else None,
+            "kept": round(1 - lost / classified, 4) if classified else None,
+        }
+
+    total = Counter()
+    for counts in per_season.values():
+        total.update(counts)
+    return {
+        **summarise(total),
+        "tipped_interceptions": total[LuckKind.TIPPED_INTERCEPTION.value],
+        "by_season": {
+            str(season): summarise(per_season[season]) for season in sorted(per_season)
+        },
+    }
+
+
+def _defended_rates(per_season: dict[int, Counter]) -> dict:
+    """
+    Interceptions over the passes a defender is recorded as having reached.
+
+    `coverage` is `broken_up / attempts` -- how much of the denominator the
+    season's text writes down at all. It is the number to read: the share is
+    only as good as it.
+    """
+
+    def summarise(counts: Counter) -> dict:
+        attempts = counts["attempts"]
+        interceptions = counts["interceptions"]
+        broken_up = counts["broken_up"]
+        defended = interceptions + broken_up
+        return {
+            "attempts": attempts,
+            "interceptions": interceptions,
+            "broken_up": broken_up,
+            "coverage": round(broken_up / attempts, 4) if attempts else None,
+            "interception_share": (
+                round(interceptions / defended, 4) if defended else None
+            ),
+        }
+
+    total = Counter()
+    for counts in per_season.values():
+        total.update(counts)
+    return {
+        **summarise(total),
+        "by_season": {
+            str(season): summarise(per_season[season]) for season in sorted(per_season)
+        },
+    }
+
+
 def _whoami() -> str:
     try:
         return getpass.getuser()
@@ -316,4 +468,4 @@ def _whoami() -> str:
 
 
 if __name__ == "__main__":
-    fire.Fire({"train": train, "curve": curve})
+    fire.Fire({"train": train, "curve": curve, "rates": rates})
