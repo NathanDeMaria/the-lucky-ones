@@ -18,8 +18,15 @@ from pathlib import Path
 import pytest
 
 import charts
+from lucky_ones.epa import DEFAULT_WEIGHT_POWER
 from synthetic import write_tree
-from validate import CHARTS, redraw, validate, weighting
+from validate import (
+    CHARTS,
+    DESCRIPTION_POWERS,
+    redraw,
+    validate,
+    weighting,
+)
 
 
 @pytest.fixture(name="tree")
@@ -350,3 +357,54 @@ def test_the_trial_refuses_overlapping_seasons(tmp_path, tree):
             fit_seasons="2024-2025",
             test_seasons="2025",
         )
+
+
+def test_the_descriptive_trial_sweeps_the_power(trial):
+    """
+    The descriptive half: how far each power lands from the mean over only
+    the snaps where the game was in doubt.
+    """
+    description = trial["description"]
+    if "by_power" not in description:
+        pytest.skip("the fixture has too few team-games with live snaps")
+    assert set(description["by_power"]) == {str(power) for power in DESCRIPTION_POWERS}
+    for row in description["by_power"].values():
+        assert row["mean_abs_error"] >= 0.0
+        assert row["p90_abs_error"] >= row["mean_abs_error"]
+    assert float(description["best_power"]) in DESCRIPTION_POWERS
+
+
+def test_the_descriptive_trial_is_not_monotone_in_the_power(trial):
+    """
+    The property that stops this being arithmetic dressed as a test. A weight
+    of `4p(1-p)` fades inside the live window too, so a large enough power
+    stops averaging over the live game and starts averaging over the
+    coin-flip snaps inside it -- there is a best power, and it is neither the
+    smallest nor the largest on offer.
+    """
+    description = trial["description"]
+    if "by_power" not in description:
+        pytest.skip("the fixture has too few team-games with live snaps")
+    errors = [
+        description["by_power"][str(power)]["mean_abs_error"]
+        for power in DESCRIPTION_POWERS
+    ]
+
+    assert min(errors) not in (errors[0], errors[-1]), (
+        "an optimum at an endpoint would mean the sweep hasn't bracketed it"
+    )
+
+
+def test_no_weighting_is_the_furthest_from_the_live_only_mean(trial):
+    """
+    Power 0 is the plain average over every snap, garbage time included, so
+    the gap it leaves is the size of the problem the weighting is for.
+    """
+    description = trial["description"]
+    if "by_power" not in description:
+        pytest.skip("the fixture has too few team-games with live snaps")
+
+    plain = description["by_power"]["0.0"]["mean_abs_error"]
+    shipped = description["by_power"][str(DEFAULT_WEIGHT_POWER)]["mean_abs_error"]
+
+    assert shipped < plain

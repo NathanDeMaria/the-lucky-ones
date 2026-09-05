@@ -76,6 +76,10 @@ INFINITE = float("inf")
 
 CLIPS = (1.0, 2.0, 3.0, 4.0, 5.0, 7.0, INFINITE)
 POWERS = (0.0, 0.25, 0.5, 1.0, 2.0)
+# Wider at the top for the descriptive trial, which is the one where a large
+# power stops being an average over the live game and starts being an average
+# over the coin-flip snaps inside it.
+DESCRIPTION_POWERS = (0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0)
 
 LANDMARKS: tuple[tuple[str, dict], ...] = (
     ("1st and 10, own 1", dict(down=1, distance=10, yardline=1)),
@@ -422,6 +426,145 @@ def _distribution(
         },
         "beyond_clip": round(float(np.mean(np.abs(raw) > clip)), 4),
         "effective_play_share": round(float(weight.mean()), 4),
+    }
+
+
+def _description_trial(
+    points: MultinomialExpectedPoints,
+    win: LogisticWinProbability,
+    games: Sequence[Game],
+    *,
+    clip: float,
+    powers: Sequence[float],
+    min_live_snaps: int,
+) -> dict:
+    """
+    The other half of the weighting question, and the one no correlation can
+    answer: is the weighted number a better *description* of one game?
+
+    Everything else here is predictive -- it asks what a number from half a
+    season says about the other half. The complaint the weighting exists to
+    answer isn't predictive at all. It is "this team's 0.31 wasn't real, it
+    was a 45-point rout", and that is a claim about a single game.
+
+    So: take the unweighted mean over only the snaps where the game was still
+    in doubt, 0.2 to 0.8 win probability, and call that what the team did
+    while it mattered. Then ask how close each whole-game number lands to it.
+
+    **This is a definition, not an outside truth, and the direction of the
+    result is nearly baked in** -- a weighting designed to fade out garbage
+    time will of course land nearer a garbage-time-free average than one that
+    doesn't. Two things make it worth measuring anyway.
+
+    The first is the size. Nothing so far says how much garbage time actually
+    moves a team's game number, and "how big is the problem" is the question
+    that decides whether solving it is worth a third of the sample.
+
+    The second is that the answer is *not* monotone in the power, which is
+    what stops this from being arithmetic dressed up as a test. `4p(1-p)`
+    fades inside the live window too -- a snap at 0.2 carries 0.64, not 1 --
+    so as the power climbs the weight concentrates on the coin-flip snaps and
+    the number stops being an average over the live game at all. There is a
+    power that recovers the live average best and it is neither 0 nor
+    infinity. Where it falls is a real finding, and it is a finding about the
+    shipped default.
+    """
+    from lucky_ones.epa import play_epa
+
+    rows: list[dict] = []
+    for game in games:
+        plays = play_epa(
+            points, win, game["states"], game["scored"], clip=clip, weight_power=0.0
+        )
+        if not plays:
+            continue
+        for home in (True, False):
+            side = [play for play in plays if play.offense_is_home == home]
+            if not side:
+                continue
+            epa = np.array([play.bounded for play in side])
+            wp = np.array([play.win_probability for play in side])
+            live = (wp > 0.2) & (wp < 0.8)
+            if live.sum() < min_live_snaps:
+                continue
+            estimates, effective = {}, {}
+            for power in powers:
+                weight = competitiveness(wp, power)
+                total, square = weight.sum(), np.square(weight).sum()
+                estimates[power] = float(epa @ weight / total)
+                # What this power leaves of the sample, so the descriptive
+                # gain it buys can be read against the precision it spends.
+                effective[power] = float((total * total / square) / len(epa))
+            rows.append(
+                {
+                    "live_mean": float(epa[live].mean()),
+                    "live_share": float(live.mean()),
+                    "estimates": estimates,
+                    "effective": effective,
+                }
+            )
+
+    if len(rows) < 50:
+        return {"team_games": len(rows), "note": "too few"}
+
+    shares = np.array([row["live_share"] for row in rows])
+    cuts = np.quantile(shares, [1 / 3, 2 / 3])
+    bands = {
+        "mostly decided": shares <= cuts[0],
+        "mixed": (shares > cuts[0]) & (shares <= cuts[1]),
+        "mostly live": shares > cuts[1],
+    }
+
+    def summarise(power: float, picked: np.ndarray) -> dict:
+        error = np.array(
+            [
+                row["estimates"][power] - row["live_mean"]
+                for row, keep in zip(rows, picked)
+                if keep
+            ]
+        )
+        kept = np.array(
+            [row["effective"][power] for row, keep in zip(rows, picked) if keep]
+        )
+        plain = np.array(
+            [
+                abs(row["estimates"][0.0] - row["live_mean"])
+                for row, keep in zip(rows, picked)
+                if keep
+            ]
+        )
+        return {
+            "team_games": int(len(error)),
+            "mean_abs_error": round(float(np.mean(np.abs(error))), 4),
+            "rmse": round(float(np.sqrt(np.mean(np.square(error)))), 4),
+            "bias": round(float(np.mean(error)), 4),
+            "p90_abs_error": round(float(np.quantile(np.abs(error), 0.9)), 4),
+            # The two halves of the trade side by side: how much of the
+            # garbage-time gap this power closes, and what it leaves of the
+            # sample to close it with.
+            "gap_closed": round(
+                1.0 - float(np.mean(np.abs(error)) / np.mean(plain)), 4
+            ),
+            "effective_sample_share": round(float(np.mean(kept)), 4),
+        }
+
+    everything = np.ones(len(rows), dtype=bool)
+    by_power = {str(power): summarise(power, everything) for power in powers}
+    best = min(by_power, key=lambda key: by_power[key]["mean_abs_error"])
+    return {
+        "team_games": len(rows),
+        "min_live_snaps": min_live_snaps,
+        "live_share": {
+            "median": round(float(np.median(shares)), 4),
+            "p10": round(float(np.quantile(shares, 0.1)), 4),
+            "p90": round(float(np.quantile(shares, 0.9)), 4),
+        },
+        "by_power": by_power,
+        "best_power": float(best),
+        "by_competitiveness": {
+            name: {str(power): summarise(power, picked) for power in powers}
+            for name, picked in bands.items()
+        },
     }
 
 
@@ -1236,7 +1379,90 @@ def _trial_chart(report: dict) -> str:
     )
 
 
-TRIAL_CHARTS = {"weighting-trial": _trial_chart}
+def _description_chart(report: dict) -> str:
+    """
+    Distance from the live-only mean against the power, which is the shape
+    that matters: it falls, bottoms out, and climbs again.
+    """
+    description = report.get("description", {})
+    if "by_power" not in description:
+        return ""
+    powers = sorted(float(power) for power in description["by_power"])
+
+    def series(rows: dict) -> list[tuple[float, float]]:
+        return [(power, rows[str(power)]["mean_abs_error"]) for power in powers]
+
+    overall = series(description["by_power"])
+    bands = [
+        ("mostly decided games", "mostly decided", charts.RED),
+        ("mixed", "mixed", charts.ORANGE),
+        ("mostly live games", "mostly live", charts.GREEN),
+    ]
+    everything = [value for _, value in overall]
+    for _, key, _ in bands:
+        everything += [
+            value for _, value in series(description["by_competitiveness"][key])
+        ]
+    high = max(everything) * 1.12
+
+    axes = charts.Axes(620, 400, (0, max(powers)), (0, high))
+    axes.frame(
+        [power for power in powers if power in (0.0, 0.5, 1.0, 2.0, 3.0, 5.0)],
+        charts.nice_ticks(0, high, 6),
+        xlabel="weight_power",
+        ylabel="mean distance from the live-only average, points per play",
+        yformat="{:.2f}",
+    )
+    for label, key, color in bands:
+        axes.line(
+            series(description["by_competitiveness"][key]),
+            color=color,
+            width=1.6,
+            opacity=0.75,
+        )
+    axes.line(overall, color=charts.BLUE, width=2.6)
+
+    shipped = report["power"]
+    axes.vline(shipped, color=charts.INK, dash="3 3")
+    axes.text(
+        shipped + 0.08,
+        high * 0.95,
+        f"shipped, power {shipped:g}",
+        size=10,
+        color=charts.INK,
+        weight="600",
+    )
+    best = description["best_power"]
+    best_value = description["by_power"][str(best)]["mean_abs_error"]
+    axes.dots([(best, best_value)], color=charts.BLUE, radius=5, edge=charts.GROUND)
+    axes.text(
+        best,
+        best_value - high * 0.055,
+        f"best at {best:g}",
+        size=10,
+        color=charts.BLUE,
+        anchor="middle",
+    )
+    axes.legend(
+        [("all team-games", charts.BLUE)]
+        + [(label, color) for label, _, color in bands],
+        axes.right - 150,
+        axes.top + 90,
+    )
+    plain = description["by_power"]["0.0"]["mean_abs_error"]
+    at_shipped = description["by_power"][str(shipped)]["mean_abs_error"]
+    return axes.render(
+        f"{report['league'].upper()} the weighting halves the gap, then overshoots",
+        f"{description['team_games']:,} team-games with {description['min_live_snaps']}+ "
+        f"live snaps. Unweighted sits {plain:.3f} from the live-only average; "
+        f"at power {shipped:g} that is {at_shipped:.3f}.",
+    )
+
+
+TRIAL_CHARTS = {
+    "weighting-trial": _trial_chart,
+    "description": _description_chart,
+}
 
 CHARTS = {
     "calibration": _calibration_chart,
@@ -1292,6 +1518,7 @@ def weighting(
     power: float = DEFAULT_WEIGHT_POWER,
     min_games: int = 10,
     min_live_share: float = 0.5,
+    min_live_snaps: int = 20,
     draws: int = 400,
     seed: int = 0,
 ) -> None:
@@ -1322,6 +1549,14 @@ def weighting(
     logger.info("Fitting on %d games, testing on %d", len(fit_games), len(test_games))
     points, win = _fit_models(fit_games)
 
+    description = _description_trial(
+        points,
+        win,
+        test_games,
+        clip=DEFAULT_CLIP,
+        powers=DESCRIPTION_POWERS,
+        min_live_snaps=min_live_snaps,
+    )
     trial = _weighting_trial(
         points,
         win,
@@ -1336,6 +1571,7 @@ def weighting(
         "league": league,
         "fit_seasons": fit_years,
         "test_seasons": test_years,
+        "description": description,
         **trial,
     }
     directory = Path(out)
@@ -1384,6 +1620,32 @@ def weighting(
             row["all_scoring"]["p_better"],
             row["live_scoring"]["p_better"],
         )
+    if "by_power" in description:
+        logger.info(
+            "\n  describing one game: how far each power lands from the "
+            "live-only mean\n  over %d team-games (median %.0f%% of snaps live)",
+            description["team_games"],
+            100 * description["live_share"]["median"],
+        )
+        logger.info(
+            "  %8s %14s %11s %14s",
+            "power",
+            "mean |error|",
+            "gap closed",
+            "sample kept",
+        )
+        for power, row in description["by_power"].items():
+            mark = "  <-- best" if float(power) == description["best_power"] else ""
+            shipped = "  (shipped)" if float(power) == DEFAULT_WEIGHT_POWER else ""
+            logger.info(
+                "  %8s %14.4f %10.0f%% %13.0f%%%s%s",
+                power,
+                row["mean_abs_error"],
+                100 * row["gap_closed"],
+                100 * row["effective_sample_share"],
+                shipped,
+                mark,
+            )
     for label, key in (
         ("same games, vs full ", "live_weighted_vs_live_unadjusted"),
         ("same games, vs thin ", "live_weighted_vs_live_thinned"),

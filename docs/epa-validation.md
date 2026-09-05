@@ -355,10 +355,97 @@ data at random.
 `DEFAULT_WEIGHT_POWER = 1.0` stays. `weight_power=0.0` at any call site buys
 the precision back, and now you know exactly how much of it there is.
 
-One thing this still doesn't test: whether the weighted number is a better
-*description* of a single game. "This team's 0.31 wasn't real, it was a 45-point
-rout" is true by construction and no correlation can argue with it. Every
-target here is predictive.
+### Describing one game
+
+Everything above is predictive — it asks what a number from half a season says
+about the other half. The complaint the weighting exists to answer isn't
+predictive at all. It is *"this team's 0.31 wasn't real, it was a 45-point
+rout"*, and that is a claim about a single game.
+
+So: take the unweighted mean over only the snaps where the game was still in
+doubt — 0.2 to 0.8 win probability — and call that what the team did while it
+mattered. Then ask how close each whole-game number lands to it.
+
+**That is a definition, not an outside truth, and the direction of the result
+is nearly baked in.** A weighting designed to fade out garbage time will of
+course land nearer a garbage-time-free average. Two things make it worth
+measuring anyway, and the second is what makes it a test rather than
+arithmetic:
+
+- **The size.** Nothing else here says how much garbage time actually moves a
+  team's game number, and that is the question that decides whether solving it
+  is worth a third of the sample.
+- **The answer is not monotone in the power.** `4p(1−p)` fades *inside* the
+  live window too — a snap at 0.2 carries 0.64, not 1 — so as the power climbs
+  the weight concentrates on the coin-flip snaps and the number stops being an
+  average over the live game at all. There is a best power, and it is neither
+  0 nor infinity.
+
+![NFL descriptive sweep](description-nfl.svg)
+
+![NCAAFB descriptive sweep](description-ncaafb.svg)
+
+| mean distance from the live-only average | NFL | NCAAFB |
+| --- | --- | --- |
+| power 0 — no weighting | 0.113 | 0.112 |
+| power 0.5 | 0.082 | 0.082 |
+| **power 1.0 — shipped** | **0.065** | **0.064** |
+| power 1.5 | 0.056 | 0.054 |
+| **power 2.0 — best** | **0.053** | **0.050** |
+| power 3.0 | 0.057 | 0.053 |
+| power 5.0 | 0.081 | 0.077 |
+
+Over 1,321 NFL and 6,484 college team-games with at least 20 live snaps. The
+two leagues trace almost the same curve, which is more reassurance than either
+one alone: they have different schedules, different blowout rates and different
+scoring environments, and the shape doesn't care.
+
+**Three things this says.**
+
+*Garbage time is worth about 0.11 to a team's game number* — and 0.26 at the
+90th percentile, against a spread between good and bad offenses of a few
+tenths. The problem is real and it is not small.
+
+*The shipped power removes 42–43% of it,* in both leagues. Not all of it,
+because `4p(1−p)` is a taper rather than a cutoff — a snap at 0.85 still counts
+for a fifth.
+
+*The curve bottoms at power 2 and climbs again,* which is the part that
+couldn't have been arithmetic. Past 2 the weight piles onto the coin-flip snaps
+and the number drifts away from the live-game average it was chasing. By power
+5 it is worse than power 0.5.
+
+So power 1 is not the descriptive optimum. Both halves of the trade, from the
+same computation, per team-game:
+
+| | gap closed (NFL) | sample kept | gap closed (NCAAFB) | sample kept |
+| --- | --- | --- | --- | --- |
+| power 0.5 | 28% | 93% | 27% | 91% |
+| **power 1.0 — shipped** | **43%** | **86%** | **42%** | **83%** |
+| power 1.5 | 50% | 80% | 51% | 76% |
+| power 2.0 | 53% | 76% | 55% | 71% |
+| power 3.0 | 49% | 69% | 52% | 64% |
+
+*(These are Kish shares averaged per team-game, so they run a little higher
+than the per-half-season figures in the precision table above — same formula,
+smaller unit.)*
+
+The trade is close to one for one: going from 1 to 2 buys another ten to
+thirteen points of the gap for ten to twelve points of sample. And the first
+tranche of that sample — going from 0 to 1 — is the one whose predictive cost
+was measured above at −0.031 reliability in the NFL and −0.072 in college, so
+a second tranche of the same size should be expected to cost about as much
+again.
+
+That makes power 2 a real option rather than a rejected one, and the choice
+between them a preference: **power 1 is the conservative end of a flat
+stretch** — most of the descriptive benefit at the smaller precision bill —
+and power 2 is the other end. What isn't defensible is anything past 3, where
+the curve turns and you pay more sample to get a *worse* description.
+
+**What is still not tested:** whether the live-only average is itself the right
+thing to want. It is a definition everyone would accept, but it is a
+definition.
 
 ---
 
