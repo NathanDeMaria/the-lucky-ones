@@ -970,13 +970,29 @@ random into two sets 1,500 times over:
 | EPA/play (NCAAFB) | **0.511** | **0.470** | **0.249** |
 | points/play (NCAAFB) | 0.468 | 0.466 | 0.242 |
 
-EPA beats the box score in six of six cells. Two caveats the report is
-explicit about: none of those margins clears significance on its own, and the
-same design **cannot** adjudicate `weight_power`, because down-weighting
-discards blowouts and blowouts are the mismatch games — so the weighted
-metric's two sets are drawn from a different pool than the unweighted one.
-`DEFAULT_CLIP` is measured; `DEFAULT_WEIGHT_POWER` is a choice, and the report
-gives its price rather than its verdict.
+EPA beats the box score in six of six cells, though none of those margins
+clears significance on its own.
+
+**And what the weighting costs.** A plain sweep of `weight_power` makes it look
+bad, but that sweep can't be read: down-weighting a blowout is nearly the same
+as dropping it, so the weighted number works from a different pool of games
+than the unweighted one. `make weighting` holds the pool still — comparing the
+weighted number against the unweighted one *thinned to the same effective
+sample* (Kish's `n_eff`), so only the choice of snaps differs:
+
+| at power 1 | NFL | NCAAFB |
+| --- | --- | --- |
+| effective sample kept | 81% | 70% |
+| what that precision costs, in reliability | −0.031 | −0.072 |
+| what the weighting's snap choice buys back | +0.026 | +0.004 |
+
+**The whole penalty is the sample.** The snaps the weighting picks are, if
+anything, marginally better than a random draw of the same size — positive in
+six of six cells, significant in none. So the weighting is a precision cost
+with no accuracy penalty: you pay a fifth of the NFL's effective sample and
+nearly a third of college's, and get a number that describes competitive
+football by construction. `DEFAULT_CLIP` is measured;
+`DEFAULT_WEIGHT_POWER` is a preference with a known bill.
 
 ### Three things this one isn't
 
@@ -1014,6 +1030,7 @@ make epa      # one game's EPA per play, and every snap behind it
 make rates    # the fumble and pass rates behind DEFAULT_RETAINED
 make bounds   # the EPA distribution behind DEFAULT_CLIP
 make validate # are the models any good? -- docs/epa-validation.md
+make weighting # what the WP weighting costs, at a fixed effective sample
 make plays    # aws s3 sync the processed play-by-play down for offline fits
 ```
 

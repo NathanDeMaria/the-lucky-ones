@@ -83,6 +83,15 @@ validate:
 	uv run python validate.py validate $(ARGS)
 
 
+# The one question `validate` deliberately refuses to answer: what the win
+# probability weighting actually costs, measured against an unweighted number
+# thinned to the same effective sample so the comparison isn't just sample
+# size. Expensive -- it re-thins every team-half on every deal.
+#   make weighting ARGS="--league ncaafb --root ./plays"
+weighting:
+	uv run python validate.py weighting $(ARGS)
+
+
 # A local copy of the processed play-by-play, so a fit can be re-run without
 # credentials. The prefix is endgame's; BUCKET comes from the same config the
 # store reads.
@@ -91,4 +100,4 @@ plays:
 	aws s3 sync s3://${BUCKET}/processed/plays ./plays
 
 
-.PHONY: lint check test wheel train train-ep curve epa rates bounds validate plays
+.PHONY: lint check test wheel train train-ep curve epa rates bounds validate weighting plays

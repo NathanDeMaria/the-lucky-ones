@@ -110,6 +110,18 @@ async def _load(source: PlaySource, league: str, seasons: Iterable[int]) -> list
     return plays
 
 
+def _prepared(source: PlaySource, league: str, seasons: Sequence[int]) -> list[Game]:
+    """Every game of `seasons`, walked once into the shape both commands use."""
+    plays = asyncio.run(_load(source, league, seasons))
+    games = [game for game in (_prepare(g) for g in group_by_game(plays)) if game]
+    if not games:
+        raise ValueError(
+            f"No {league} games in {list(seasons)}. With --root, check the path "
+            "points at the `processed/plays` directory."
+        )
+    return games
+
+
 def _prepare(game: GamePlays) -> Game | None:
     """
     Everything downstream needs from one game, computed once.
@@ -413,6 +425,21 @@ def _distribution(
     }
 
 
+def _correlate(x: np.ndarray, y: np.ndarray) -> float:
+    """
+    Pearson r over the rows where both sides are finite.
+
+    A team-half can be missing a column -- a dealt set with no competitive
+    game in it has no live number -- and dropping those pairs is right, but
+    dropping so many that the correlation is off a handful of teams is not.
+    Below ten usable pairs it says nothing rather than something noisy.
+    """
+    usable = np.isfinite(x) & np.isfinite(y)
+    if usable.sum() < 10:
+        return np.nan
+    return float(np.corrcoef(x[usable], y[usable])[0, 1])
+
+
 def _split_half(
     points: MultinomialExpectedPoints,
     win: LogisticWinProbability,
@@ -549,12 +576,6 @@ def _split_half(
         second = np.array([pair[1] for pair in halves])
         return first, second
 
-    def correlate(x: np.ndarray, y: np.ndarray) -> float:
-        usable = np.isfinite(x) & np.isfinite(y)
-        if usable.sum() < 10:
-            return np.nan
-        return float(np.corrcoef(x[usable], y[usable])[0, 1])
-
     # Every draw is a fresh deal *and* a fresh resample of team-seasons, so
     # the spread covers both. Every column is scored on the same draw, which
     # is what makes the paired differences below meaningful.
@@ -571,7 +592,7 @@ def _split_half(
         first, second = first[picked], second[picked]
         for key in keys:
             column = position[key]
-            samples[key]["reliability"][draw] = correlate(
+            samples[key]["reliability"][draw] = _correlate(
                 first[:, column], second[:, column]
             )
             for name, target in (("all_scoring", "__all"), ("live_scoring", "__live")):
@@ -581,7 +602,7 @@ def _split_half(
                 outcome = np.concatenate(
                     [second[:, position[target]], first[:, position[target]]]
                 )
-                samples[key][name][draw] = correlate(metric, outcome)
+                samples[key][name][draw] = _correlate(metric, outcome)
 
     def summarise(sample: np.ndarray) -> dict:
         clean = sample[np.isfinite(sample)]
@@ -625,6 +646,241 @@ def _split_half(
             for key in keys
             if key.startswith(("clip", "power"))
         },
+    }
+
+
+def _weighting_trial(
+    points: MultinomialExpectedPoints,
+    win: LogisticWinProbability,
+    games: Sequence[Game],
+    *,
+    power: float,
+    min_games: int,
+    min_live_share: float,
+    draws: int,
+    seed: int,
+) -> dict:
+    """
+    The test `_split_half` can't do: what the weighting costs *at a fixed
+    sample*, and what it does when every variant sees the same games.
+
+    The sweep in `_split_half` compares a weighted number against an
+    unweighted one, and those two are not computed over the same football.
+    Down-weighting a blowout to near nothing effectively removes it, so the
+    weighted variant works from a smaller and differently-chosen pool of
+    games. Two things move at once -- how snaps are combined, which is the
+    thing being argued about, and how many snaps survive, which is an
+    artifact of the argument. Either could produce the penalty that sweep
+    reports.
+
+    So this holds each of them still in turn.
+
+    **Equal effective sample.** A weighted mean over snaps carries the
+    precision of a smaller unweighted one, and Kish's formula says how much
+    smaller: `n_eff = (sum w)^2 / sum w^2`. So the control is the *unweighted*
+    number over a random thinning of the same snaps down to that same
+    `n_eff` -- same estimand as the full unweighted number, same precision as
+    the weighted one. Then:
+
+    - weighted beats thinned  -> the weighting picks better snaps, and the
+      penalty in the sweep was the sample it spent.
+    - weighted ties thinned   -> the weighting is precisely a sample cost and
+      buys no accuracy at all.
+    - weighted loses to thinned -> the weighting picks *worse* snaps, and
+      spends sample to do it.
+
+    Thinning is Bernoulli at `n_eff / n`, drawn fresh every time, so the
+    control carries real sampling noise rather than a normal approximation to
+    it.
+
+    **Fixed game set.** Separately, both variants are restricted to the games
+    that stayed in doubt -- at least `min_live_share` of that team's snaps
+    between 0.2 and 0.8 win probability. Now the pool is identical by
+    construction and the weighting can only re-combine snaps *within* games it
+    was always going to keep. Whatever survives here is the weighting's own
+    effect, with the selection confound gone.
+
+    Reported against the same three targets as `_split_half`, on the same
+    random deals, so every number on the page is comparable.
+    """
+    rng = np.random.default_rng(seed)
+
+    per_team: dict[str, dict[int, list]] = defaultdict(lambda: defaultdict(list))
+    for game in games:
+        rows = _play_rows(points, win, game)
+        if rows is None:
+            continue
+        epa, wp, is_home = rows
+        for team, home in ((game["home"], True), (game["away"], False)):
+            side = is_home == home
+            if not side.any():
+                continue
+            mine, theirs = epa[side], wp[side]
+            live = float(((theirs > 0.2) & (theirs < 0.8)).mean())
+            per_team[team][game["season"]].append(
+                {
+                    "epa": mine,
+                    "weight": competitiveness(theirs, power),
+                    "points": float(
+                        (game["home_score"] if home else game["away_score"]) or 0
+                    ),
+                    "snaps": float(side.sum()),
+                    "live": live >= min_live_share,
+                }
+            )
+
+    seasons = [
+        rows
+        for team in per_team.values()
+        for rows in team.values()
+        if len(rows) >= min_games
+    ]
+    if len(seasons) < 20:
+        return {"team_seasons": len(seasons), "note": "too few"}
+
+    def reduce(picked: Sequence[dict]) -> dict[str, float]:
+        """Every variant over one dealt half of one team-season."""
+        epa = np.concatenate([row["epa"] for row in picked])
+        weight = np.concatenate([row["weight"] for row in picked])
+        total, square = weight.sum(), np.square(weight).sum()
+        out: dict[str, float] = {
+            "unadjusted": float(epa.mean()),
+            "weighted": float(epa @ weight / total) if total > 0 else np.nan,
+        }
+        # Kish: the unweighted sample size that would carry this precision.
+        effective = (total * total / square) if square > 0 else 0.0
+        keep = rng.random(len(epa)) < min(effective / len(epa), 1.0)
+        out["thinned"] = float(epa[keep].mean()) if keep.any() else np.nan
+        out["n_eff_share"] = float(effective / len(epa))
+
+        live = [row for row in picked if row["live"]]
+        if live:
+            live_epa = np.concatenate([row["epa"] for row in live])
+            live_weight = np.concatenate([row["weight"] for row in live])
+            live_total = live_weight.sum()
+            live_square = np.square(live_weight).sum()
+            out["live_unadjusted"] = float(live_epa.mean())
+            out["live_weighted"] = (
+                float(live_epa @ live_weight / live_total) if live_total > 0 else np.nan
+            )
+            # Thinned here too. Fixing the game set removes the confound about
+            # *which games* are in the pool, but the weighting still spends
+            # sample inside the games it keeps -- so without this the
+            # same-games comparison would just be the sample cost again.
+            live_effective = (
+                (live_total * live_total / live_square) if live_square > 0 else 0.0
+            )
+            live_keep = rng.random(len(live_epa)) < min(
+                live_effective / len(live_epa), 1.0
+            )
+            out["live_thinned"] = (
+                float(live_epa[live_keep].mean()) if live_keep.any() else np.nan
+            )
+            out["live_n_eff_share"] = float(live_effective / len(live_epa))
+        else:
+            out["live_unadjusted"] = np.nan
+            out["live_weighted"] = np.nan
+            out["live_thinned"] = np.nan
+            out["live_n_eff_share"] = np.nan
+
+        scored = sum(row["points"] for row in picked)
+        snaps = sum(row["snaps"] for row in picked)
+        out["__all"] = scored / snaps if snaps else np.nan
+        live_scored = sum(row["points"] for row in live)
+        live_snaps = sum(row["snaps"] for row in live)
+        out["__live"] = live_scored / live_snaps if live_snaps else np.nan
+        return out
+
+    variants = (
+        "unadjusted",
+        "weighted",
+        "thinned",
+        "live_unadjusted",
+        "live_weighted",
+        "live_thinned",
+    )
+    targets = ("reliability", "all_scoring", "live_scoring")
+    samples = {
+        name: {target: np.empty(draws) for target in targets} for name in variants
+    }
+    shares: list[float] = []
+    live_shares: list[float] = []
+
+    for draw in range(draws):
+        halves = []
+        for rows in seasons:
+            order = rng.permutation(len(rows))
+            cut = len(rows) // 2
+            halves.append(
+                (
+                    reduce([rows[index] for index in order[:cut]]),
+                    reduce([rows[index] for index in order[cut : cut * 2]]),
+                )
+            )
+        picked = rng.integers(0, len(halves), len(halves))
+        first = [halves[index][0] for index in picked]
+        second = [halves[index][1] for index in picked]
+        if draw == 0:
+            shares = [half["n_eff_share"] for pair in halves for half in pair]
+            live_shares = [half["live_n_eff_share"] for pair in halves for half in pair]
+
+        def column(rows, key):
+            return np.array([row[key] for row in rows])
+
+        for name in variants:
+            samples[name]["reliability"][draw] = _correlate(
+                column(first, name), column(second, name)
+            )
+            for target, key in (("all_scoring", "__all"), ("live_scoring", "__live")):
+                metric = np.concatenate([column(first, name), column(second, name)])
+                outcome = np.concatenate([column(second, key), column(first, key)])
+                samples[name][target][draw] = _correlate(metric, outcome)
+
+    def summarise(sample: np.ndarray) -> dict:
+        clean = sample[np.isfinite(sample)]
+        low, high = np.percentile(clean, [2.5, 97.5])
+        return {
+            "r": round(float(clean.mean()), 4),
+            "low": round(float(low), 4),
+            "high": round(float(high), 4),
+        }
+
+    def compare(key: str, against: str) -> dict:
+        out = {}
+        for target in targets:
+            difference = samples[key][target] - samples[against][target]
+            clean = difference[np.isfinite(difference)]
+            low, high = np.percentile(clean, [2.5, 97.5])
+            out[target] = {
+                "difference": round(float(clean.mean()), 4),
+                "low": round(float(low), 4),
+                "high": round(float(high), 4),
+                "p_better": round(float((clean > 0).mean()), 3),
+            }
+        return out
+
+    usable = [share for share in live_shares if np.isfinite(share)]
+    return {
+        "power": power,
+        "team_seasons": len(seasons),
+        "draws": draws,
+        "min_live_share": min_live_share,
+        "effective_sample_share": round(float(np.mean(shares)), 4),
+        "live_effective_sample_share": (
+            round(float(np.mean(usable)), 4) if usable else None
+        ),
+        "metrics": {
+            name: {target: summarise(samples[name][target]) for target in targets}
+            for name in variants
+        },
+        # The decisive one: same precision, different snaps.
+        "weighted_vs_thinned": compare("weighted", "thinned"),
+        # How much of the sweep's penalty was simply the sample it spent.
+        "thinned_vs_unadjusted": compare("thinned", "unadjusted"),
+        "weighted_vs_unadjusted": compare("weighted", "unadjusted"),
+        # Same games for both, so only the within-game re-combination is left.
+        "live_weighted_vs_live_unadjusted": compare("live_weighted", "live_unadjusted"),
+        "live_weighted_vs_live_thinned": compare("live_weighted", "live_thinned"),
     }
 
 
@@ -892,6 +1148,96 @@ def _split_half_chart(report: dict) -> str:
     )
 
 
+def _trial_chart(report: dict) -> str:
+    """
+    The three variants side by side, which is the whole argument in one
+    picture: `thinned` sits level with `weighted`, and both sit below
+    `unadjusted` by the same amount.
+    """
+    if "metrics" not in report:
+        return ""
+    rows = [
+        ("no weighting", "unadjusted", charts.GREEN),
+        ("no weighting, thinned to the same precision", "thinned", charts.MUTED),
+        ("weighted, power 1", "weighted", charts.BLUE),
+    ]
+    targets = (
+        ("reliability", "agrees with its own other half"),
+        ("all_scoring", "predicts points per play"),
+        ("live_scoring", "predicts points in live games"),
+    )
+    spread = [
+        report["metrics"][key][target][field]
+        for _, key, _ in rows
+        for target, _ in targets
+        for field in ("r", "low", "high")
+    ]
+    low, high = min(0.0, min(spread) - 0.03), max(spread) + 0.09
+    axes = charts.Axes(660, 400, (low, high), (0.0, 3.0), pad=(268, 18, 50, 44))
+    axes.frame(
+        charts.nice_ticks(low, high, 7),
+        [],
+        xlabel="correlation between one random half of a season and the other",
+    )
+    for group, (target, label) in enumerate(targets):
+        base = 2.55 - group * 0.95
+        axes.text(
+            axes.left - 8,
+            axes.y(base + 0.30) + 4,
+            label,
+            size=10.5,
+            color=charts.INK,
+            anchor="end",
+            pixels=True,
+            weight="600",
+        )
+        for index, (name, key, color) in enumerate(rows):
+            value = report["metrics"][key][target]
+            y = base - index * 0.24
+            start, end = sorted((axes.x(0.0), axes.x(value["r"])))
+            axes.raw(
+                f'<rect x="{start:.2f}" y="{axes.y(y) - 7:.2f}" '
+                f'width="{max(end - start, 1):.2f}" height="14" '
+                f'fill="{color}" opacity="0.85" rx="2"/>'
+            )
+            whisker = tuple(
+                min(max(axes.x(value[field]), axes.left), axes.right)
+                for field in ("low", "high")
+            )
+            axes.raw(
+                f'<line x1="{whisker[0]:.2f}" y1="{axes.y(y):.2f}" '
+                f'x2="{whisker[1]:.2f}" y2="{axes.y(y):.2f}" '
+                f'stroke="{charts.INK}" stroke-width="1.2" opacity="0.55"/>'
+            )
+            axes.text(
+                axes.x(value["r"]) + 6,
+                axes.y(y) + 4,
+                f"{value['r']:.3f}",
+                size=10,
+                color=charts.INK,
+                pixels=True,
+            )
+            if group == 0:
+                axes.text(
+                    axes.left - 8,
+                    axes.y(y) + 4,
+                    name,
+                    size=10,
+                    color=charts.MUTED,
+                    anchor="end",
+                    pixels=True,
+                )
+    kept = report["effective_sample_share"]
+    return axes.render(
+        f"{report['league'].upper()} the weighting costs precision, not accuracy",
+        f"{report['team_seasons']} team-seasons, {report['draws']} random deals. "
+        f"Weighting leaves {kept:.0%} of the effective sample; the grey bar is "
+        f"the unweighted number thinned to that same {kept:.0%}.",
+    )
+
+
+TRIAL_CHARTS = {"weighting-trial": _trial_chart}
+
 CHARTS = {
     "calibration": _calibration_chart,
     "surface": _surface_chart,
@@ -901,9 +1247,9 @@ CHARTS = {
 }
 
 
-def _draw(report: dict, directory: Path) -> None:
+def _draw(report: dict, directory: Path, which: dict = CHARTS) -> None:
     """Every chart the report supports, into `directory`."""
-    for name, draw in CHARTS.items():
+    for name, draw in which.items():
         markup = draw(report)
         if not markup:
             continue
@@ -929,6 +1275,130 @@ def redraw(league: str = "nfl", out: str = "docs") -> None:
             f"ARGS='--league {league} --root ./plays'` first."
         )
     _draw(json.loads(payload.read_text()), directory)
+    # The weighting trial is a separate, slower command, so its report may or
+    # may not be there; redraw it when it is rather than making the caller
+    # remember which files exist.
+    trial = directory / f"weighting-{league}.json"
+    if trial.is_file():
+        _draw(json.loads(trial.read_text()), directory, TRIAL_CHARTS)
+
+
+def weighting(
+    league: str = "nfl",
+    root: str | None = None,
+    out: str = "docs",
+    fit_seasons: str = "2014-2022",
+    test_seasons: str = "2023-2025",
+    power: float = DEFAULT_WEIGHT_POWER,
+    min_games: int = 10,
+    min_live_share: float = 0.5,
+    draws: int = 400,
+    seed: int = 0,
+) -> None:
+    """
+    Settle the weighting, which `validate` deliberately does not try to.
+
+        make weighting ARGS="--league ncaafb --root ./plays"
+
+    `validate`'s sweep compares a weighted number against an unweighted one
+    over different pools of games, because down-weighting a blowout is nearly
+    the same as dropping it. This holds the pool still two different ways --
+    see `_weighting_trial`. Writes `weighting-{league}.json` next to the rest.
+
+    Fewer draws than `validate` by default: every draw re-thins every
+    team-half, so this is the expensive one.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    from train import _parse_seasons
+
+    fit_years = _parse_seasons(fit_seasons)
+    test_years = _parse_seasons(test_seasons)
+    if set(fit_years) & set(test_years):
+        raise ValueError("The fit and test seasons overlap; they must not.")
+
+    source = _source(root)
+    fit_games = _prepared(source, league, fit_years)
+    test_games = _prepared(source, league, test_years)
+    logger.info("Fitting on %d games, testing on %d", len(fit_games), len(test_games))
+    points, win = _fit_models(fit_games)
+
+    trial = _weighting_trial(
+        points,
+        win,
+        test_games,
+        power=power,
+        min_games=min_games,
+        min_live_share=min_live_share,
+        draws=draws,
+        seed=seed,
+    )
+    report = {
+        "league": league,
+        "fit_seasons": fit_years,
+        "test_seasons": test_years,
+        **trial,
+    }
+    directory = Path(out)
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = directory / f"weighting-{league}.json"
+    payload.write_text(json.dumps(report, indent=2) + "\n")
+    logger.info("Wrote %s", payload)
+    _draw(report, directory, TRIAL_CHARTS)
+
+    if "metrics" not in trial:
+        logger.info("Not enough team-seasons to say anything.")
+        return
+    logger.info(
+        "\n%s at power %g -- %d team-seasons, %d deals",
+        league,
+        power,
+        trial["team_seasons"],
+        trial["draws"],
+    )
+    logger.info(
+        "  weighting leaves %.1f%% of the effective sample",
+        100 * trial["effective_sample_share"],
+    )
+    logger.info("  %-18s %10s %12s %12s", "", "reliability", "scoring", "live")
+    for name in ("unadjusted", "thinned", "weighted"):
+        row = trial["metrics"][name]
+        logger.info(
+            "  %-18s %10.3f %12.3f %12.3f",
+            name,
+            row["reliability"]["r"],
+            row["all_scoring"]["r"],
+            row["live_scoring"]["r"],
+        )
+    for label, key in (
+        ("weighted - thinned  ", "weighted_vs_thinned"),
+        ("thinned - unadjusted", "thinned_vs_unadjusted"),
+    ):
+        row = trial[key]
+        logger.info(
+            "  %s %+9.3f %+12.3f %+12.3f   (P %.2f / %.2f / %.2f)",
+            label,
+            row["reliability"]["difference"],
+            row["all_scoring"]["difference"],
+            row["live_scoring"]["difference"],
+            row["reliability"]["p_better"],
+            row["all_scoring"]["p_better"],
+            row["live_scoring"]["p_better"],
+        )
+    for label, key in (
+        ("same games, vs full ", "live_weighted_vs_live_unadjusted"),
+        ("same games, vs thin ", "live_weighted_vs_live_thinned"),
+    ):
+        row = trial[key]
+        logger.info(
+            "  %s %+9.3f %+12.3f %+12.3f   (P %.2f / %.2f / %.2f)",
+            label,
+            row["reliability"]["difference"],
+            row["all_scoring"]["difference"],
+            row["live_scoring"]["difference"],
+            row["reliability"]["p_better"],
+            row["all_scoring"]["p_better"],
+            row["live_scoring"]["p_better"],
+        )
 
 
 def validate(
@@ -963,17 +1433,8 @@ def validate(
 
     source = _source(root)
     logger.info("Loading %s", league)
-    prepared: dict[str, list[Game]] = {}
-    for label, years in (("fit", fit_years), ("test", test_years)):
-        plays = asyncio.run(_load(source, league, years))
-        games = [game for game in (_prepare(g) for g in group_by_game(plays)) if game]
-        if not games:
-            raise ValueError(
-                f"No {league} games in the {label} seasons. With --root, check "
-                "the path points at the `processed/plays` directory."
-            )
-        prepared[label] = games
-    fit_games, test_games = prepared["fit"], prepared["test"]
+    fit_games = _prepared(source, league, fit_years)
+    test_games = _prepared(source, league, test_years)
 
     logger.info("Fitting on %d games, testing on %d", len(fit_games), len(test_games))
     points, win = _fit_models(fit_games)
@@ -1053,4 +1514,4 @@ def validate(
 
 
 if __name__ == "__main__":
-    fire.Fire({"validate": validate, "redraw": redraw})
+    fire.Fire({"validate": validate, "weighting": weighting, "redraw": redraw})
