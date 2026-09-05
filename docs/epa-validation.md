@@ -252,12 +252,13 @@ does, it does to both.
 points per play — +0.003 / −0.009 / +0.007 in the NFL, −0.004 / −0.020 /
 −0.006 in college. Not behind by anything significant, but not ahead either.
 
-That is the trade the default makes, stated plainly: the shipped number is the
-best available *description* of what a team did while games were live, and at
-this setting it is **not** a better *predictor* than points per play. The next
-two sections are where that comes from — the precision it costs, and the
-description it buys. `weight_power=0.0` returns the predictive edge at any call
-site.
+Which is why `EpaPerPlay` reports both. `home` is the weighted number and is
+the better description of one game; `home_unweighted` counts every snap and is
+the one to rank a season on. They come off the same pass over the same snaps,
+so having both costs nothing, and the row to read is decided by the job rather
+than by a default. The next three sections are where that split comes from —
+the precision the weighting costs, the description it buys, and why no middle
+setting does both.
 
 ### The bound earns its place
 
@@ -436,8 +437,8 @@ Both halves of the trade, from the same computation, per team-game:
 than the per-half-season figures in the precision table above — same formula,
 smaller unit.)*
 
-**Power 2 is the shipped default because this is the question the weighting
-exists to answer, and 2 is where the answer is best.** It closes 53–55% of the
+**Power 2 is what the weighted number ships at, because this is the question
+the weighting exists to answer and 2 is where the answer is best.** It closes 53–55% of the
 garbage-time gap; nothing else on the curve does better, and past 3 you pay
 more sample for a *worse* description.
 
@@ -449,12 +450,46 @@ tables](#epa-beats-the-box-score--and-the-weighting-spends-that-edge) show. So
 the shipped number is the best description on offer and, predictively, a wash
 against the box score.
 
-**Power 1 is the other defensible answer** and the trade between them is close
-to one for one: ten points less of the gap closed for ten points more of
-sample, which would restore roughly half the predictive edge. If you want a
-number to *rank* teams by rather than to describe a game with,
-`weight_power=1.0` — or `0.0` — is the setting, and it is a keyword argument
-at every call site.
+**But you don't have to choose**, and `EpaPerPlay` doesn't: it reports the
+weighted number and the flat one side by side, off the same pass. The next
+section is why that beats picking a compromise.
+
+### Is there a sweet spot between them?
+
+The obvious hope is a low power that buys some description almost free. There
+is a shallow interior maximum, and it is not that.
+
+![NFL reliability against the power](power-nfl.svg)
+
+![NCAAFB reliability against the power](power-ncaafb.svg)
+
+| power | NFL reliability | NCAAFB reliability | gap closed |
+| --- | --- | --- | --- |
+| 0 | 0.6170 | 0.5808 | — |
+| 0.05 | 0.6215 | **0.5814** | ~3% |
+| **0.10** | **0.6230** | 0.5801 | ~6% |
+| **0.15** | **0.6230** | 0.5774 | ~9% |
+| 0.2 | 0.6221 | 0.5739 | ~12% |
+| 0.3 | 0.6191 | 0.5657 | ~19% |
+| 0.5 | 0.6107 | 0.5482 | 27% |
+| 1.0 | 0.5890 | 0.5115 | 43% |
+| 2.0 | 0.5543 | 0.4640 | 53% |
+
+Both leagues rise slightly and then fall — a clean unimodal curve rather than
+jitter — peaking at 0.10–0.15 in the NFL and 0.05 in college. That shape is
+what a bias-variance optimum looks like, and it is real: a little
+down-weighting does seem to improve the estimate before the sample it costs
+takes over.
+
+It is also worth almost nothing. The peak is +0.006 over power 0 in the NFL
+(P = 0.64) and +0.001 in college, neither remotely significant, and a power
+that low closes under a tenth of the descriptive gap. By 0.3 college is already
+behind power 0; by 0.4 so is the NFL.
+
+So there is no compromise that does both jobs well, which is the case for not
+compromising. The two numbers `EpaPerPlay` reports are the endpoints, each best
+at its own job: **flat** for estimating a team, **power 2** for describing a
+game.
 
 **What is still not tested:** whether the live-only average is itself the right
 thing to want. It is a definition everyone would accept, but it is a

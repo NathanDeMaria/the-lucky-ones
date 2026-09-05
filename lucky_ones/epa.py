@@ -28,6 +28,9 @@ mean that this module fixes rather than leaves to the caller:
   doubt -- `4p(1-p)` on the win probability at the snap, raised to
   `weight_power`, which is 2.0 for a measured reason.
 
+`EpaPerPlay` reports the number both ways -- weighted and flat -- because the
+two are best at different jobs and they come off one pass. See that class.
+
 Both are knobs, both are keyword arguments at every call site, and both are
 off at their identity values -- `clip=inf, weight_power=0.0` is the plain
 unweighted mean of raw EPA, which is what `epa_test` checks. That is the same
@@ -209,6 +212,26 @@ class EpaPerPlay(NamedTuple):
     pair. `net` is the home team's margin, which is the single number a table
     sorts on.
 
+    **Two numbers per offense, and which one to read depends on the job.**
+    Both are averages of the same bounded EPA over the same snaps; they differ
+    only in whether the win probability weighting is applied, and they come off
+    one pass, so having both costs nothing:
+
+    - `home` is weighted. It is the better *description of one game* -- the
+      closest a whole-game number gets to what the team did while the game was
+      still in doubt.
+    - `home_unweighted` is not. It is the better *estimate of a team* --
+      measured over every snap, so it is the one to rank on and the one to add
+      up across a season.
+
+    That split isn't a hedge, it is what the measurement says. Garbage time
+    moves a game's number by 0.11 on average, and almost all of that is noise
+    rather than bias -- the mean signed error is under 0.015 in both leagues.
+    Noise is the whole error on a single game, and averages away over a season;
+    the sample the weighting spends to remove it does not come back. So the
+    weighted number wins the first job and loses the second, and `validate.py
+    weighting` is where both halves are measured.
+
     Unlike `GameControl` these do not sum to anything: they are two separate
     averages over two disjoint sets of snaps, in points, and both can be
     positive in a game where everybody moved the ball.
@@ -223,14 +246,27 @@ class EpaPerPlay(NamedTuple):
     denominator; averaging the per-game numbers instead lets a 12-snap
     weather-shortened game count as much as a full one, and lets a blowout --
     whose weight is almost all gone -- count as much as a game that was live
-    throughout. That is what the weights are on the tuple for.
+    throughout. That is what the weights are on the tuple for. For
+    `home_unweighted` the denominator is `home_plays` instead, since every snap
+    counted once.
     """
 
     home: float | None
     away: float | None
 
+    home_unweighted: float | None
+    """
+    The same bounded EPA over the same snaps, averaged flat.
+
+    Bounded, not raw: the clip is settled -- it helps on every target measured
+    -- so it is not what these two differ about. The raw per-play numbers are
+    on `plays` for a caller who wants them.
+    """
+
+    away_unweighted: float | None
+
     home_plays: int
-    """Snaps the home offense ran, before weighting."""
+    """Snaps the home offense ran, and the denominator of `home_unweighted`."""
 
     away_plays: int
 
@@ -259,6 +295,13 @@ class EpaPerPlay(NamedTuple):
         if self.home is None or self.away is None:
             return None
         return self.home - self.away
+
+    @property
+    def net_unweighted(self) -> float | None:
+        """The same margin off the unweighted pair. Sort a season on this."""
+        if self.home_unweighted is None or self.away_unweighted is None:
+            return None
+        return self.home_unweighted - self.away_unweighted
 
 
 def epa_per_play(
@@ -322,6 +365,8 @@ def epa_per_play_from_states(
     return EpaPerPlay(
         home=_weighted_mean(home),
         away=_weighted_mean(away),
+        home_unweighted=_flat_mean(home),
+        away_unweighted=_flat_mean(away),
         home_plays=len(home),
         away_plays=len(away),
         home_weight=float(sum(play.weight for play in home)),
@@ -393,6 +438,20 @@ def play_epa(
             )
         )
     return plays
+
+
+def _flat_mean(plays: Sequence[PlayEPA]) -> float | None:
+    """
+    Every snap counted once, which is the other half of the pair.
+
+    None on an offense with no snaps, matching `_weighted_mean` -- but it
+    cannot be None for any other reason, which is the point of it: the
+    weighted number can run out of weight in a game that was never in doubt,
+    and this one never runs out of plays.
+    """
+    if not plays:
+        return None
+    return float(sum(play.bounded for play in plays) / len(plays))
 
 
 def _weighted_mean(plays: Sequence[PlayEPA]) -> float | None:
