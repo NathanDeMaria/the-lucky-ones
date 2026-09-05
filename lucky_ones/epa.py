@@ -51,35 +51,46 @@ from .model import WinProbabilityModel
 from .points import ExpectedPointsModel, scoring_plays
 from .state import GameState, iter_states
 
-DEFAULT_CLIP = 5.0
+DEFAULT_CLIP = 3.0
 """
 The most expected points one play is allowed to contribute, either way.
 
-Measured rather than picked. The 99th percentile of |EPA| is 5.03 to 5.42
-across all twenty-four league-seasons of NFL and NCAAFB 2014-2025, so 5.0
-bounds about one snap in a hundred -- 1.02% to 1.41%, season by season -- and
-leaves the other ninety-nine exactly as they are. `train.py bounds` is the
-measurement.
+Measured. Swept finely against split-half prediction on held-out seasons, the
+bound has an interior optimum on a plateau from 2.5 to 4, and 3 is the middle
+of it:
 
-The reason to believe the number isn't the percentile, though -- it is that
-the football agrees with it. Ask a shipped fit what the biggest ordinary
-snaps are worth and it says +5.07 for a 60-yard touchdown from your own 40
-and -5.12 for an interception at your own 25 returned to the spot. Those are
-the ceiling of what a team does on purpose, they happen a few times a game,
-and a metric that flinches at them is measuring something else. The clip sits
-on them to within a tenth of a point, so what it truncates is the compound
-play instead: the same interception returned for a touchdown, at -8.11, which
-is two events the box score charges to one snap.
+    clip   NFL scoring   NFL live   NCAAFB scoring   NCAAFB live
+       1        0.5029     0.4536           0.4907        0.2510
+       2        0.5495     0.4885           0.4971        0.2613
+       3        0.5585     0.4897           0.4969        0.2637
+       5        0.5544     0.4811           0.4938        0.2631
+    none        0.5548     0.4826           0.4890        0.2613
 
-Which is also why 4 was the wrong first guess. It is the 97.5th percentile
-and bites about one snap in forty, so it truncates the ordinary deep
-interception and the ordinary long touchdown too.
+Two things make that a measurement rather than a preference for tidier
+numbers. Reliability on its own would clip *everything* -- it improves
+monotonically as the bound tightens, by 0.050 at clip 1 in college -- so it
+cannot be the criterion. The predictive targets are what bracket the answer,
+and they collapse at clip 1: five points off the NFL scoring correlation,
+because by then the bound is eating signal rather than noise. `validate.py`
+is the sweep.
+
+It bites about one snap in twenty, which is more than it sounds and is the
+argument that lost. 5.0 shipped first, chosen because it sits on the ordinary
+ceiling of what one snap does -- a 60-yard touchdown from your own 40 is
++5.07 and an interception at your own 25 returned to the spot is -5.12, so a
+bound there touches only the compound play that was really two events (that
+same interception returned for a score is -8.11). At 3 the bound truncates
+those ordinary plays too. The football says 5; the football is wrong by
+0.0006 to 0.0086 of correlation on four of four predictive cells across both
+leagues, and the whole point of building the validation was to let that
+happen.
 
 Why bound at all, given the tail is real: a game is only ~130 snaps. At its
 full -11 a red-zone pick-six moves a team's average by 0.08, which is most of
 the gap between a good offense and a bad one, off one play. Bounded it moves
-it by 0.04. The play still dominates the game; it just doesn't get to be three
-plays.
+it by 0.02. The play still dominates the game; it just doesn't get to be five
+plays. The unbounded per-play numbers stay on `PlayEPA.epa` for anyone who
+wants them.
 """
 
 DEFAULT_WEIGHT_POWER = 2.0
