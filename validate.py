@@ -75,7 +75,12 @@ WEEKS = range(0, 21)
 INFINITE = float("inf")
 
 CLIPS = (1.0, 2.0, 3.0, 4.0, 5.0, 7.0, INFINITE)
-POWERS = (0.0, 0.25, 0.5, 1.0, 2.0)
+# Finely spaced below 0.5, because that is where an interior optimum would
+# sit if there is one: a little down-weighting could plausibly improve the
+# estimate -- garbage-time snaps are different football -- before the sample
+# it costs takes over. A sweep that steps straight from 0 to 0.5 cannot see
+# the difference between a peak and a slope.
+POWERS = (0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.5, 2.0)
 # Wider at the top for the descriptive trial, which is the one where a large
 # power stops being an average over the live game and starts being an average
 # over the coin-flip snaps inside it.
@@ -1469,7 +1474,87 @@ TRIAL_CHARTS = {
     "description": _description_chart,
 }
 
+
+def _power_chart(report: dict) -> str:
+    """
+    Reliability against the power, with the box score as the line to stay
+    above. The decision in one picture.
+    """
+    split = report.get("split_half", {})
+    if not split.get("metrics"):
+        return ""
+    powers = sorted(
+        float(name.split()[1]) for name in split["metrics"] if name.startswith("power ")
+    )
+    if len(powers) < 4:
+        return ""
+    curve = [
+        (power, split["metrics"][f"power {power:g}"]["reliability"]["r"])
+        for power in powers
+    ]
+    band = [
+        (
+            power,
+            split["metrics"][f"power {power:g}"]["reliability"]["low"],
+            split["metrics"][f"power {power:g}"]["reliability"]["high"],
+        )
+        for power in powers
+    ]
+    box = split["metrics"]["points/play"]["reliability"]["r"]
+    low = min(min(value for _, value, _ in band), box) - 0.02
+    high = max(max(value for _, _, value in band), box) + 0.02
+
+    axes = charts.Axes(620, 400, (0, max(powers)), (low, high))
+    axes.frame(
+        [power for power in powers if power in (0.0, 0.5, 1.0, 1.5, 2.0)],
+        charts.nice_ticks(low, high, 6),
+        xlabel="weight_power",
+        ylabel="split-half reliability",
+        yformat="{:.2f}",
+    )
+    axes.band(band, charts.BLUE)
+    axes.line(curve, color=charts.BLUE, width=2.4)
+    axes.hline(box, color=charts.ORANGE, dash="5 4")
+    axes.text(
+        max(powers) * 0.98,
+        box + (high - low) * 0.018,
+        "points per play — the box score",
+        size=10,
+        color=charts.ORANGE,
+        anchor="end",
+        weight="600",
+    )
+    best = max(curve, key=lambda pair: pair[1])
+    axes.dots([best], color=charts.BLUE, radius=5, edge=charts.GROUND)
+    axes.text(
+        best[0],
+        best[1] + (high - low) * 0.03,
+        f"best at {best[0]:g}",
+        size=10,
+        color=charts.BLUE,
+        anchor="middle",
+    )
+    shipped = report["weight_power"]
+    axes.vline(shipped, color=charts.INK, dash="3 3")
+    axes.text(
+        shipped - 0.05,
+        high - (high - low) * 0.06,
+        f"weighted number ships at {shipped:g}",
+        size=10,
+        color=charts.INK,
+        anchor="end",
+        weight="600",
+    )
+    return axes.render(
+        f"{report['league'].upper()} where the weighting stops paying",
+        f"{split['team_seasons']} team-seasons; band is the 95% bootstrap "
+        "interval. The flat number is the value at 0, and it is the one the "
+        "package reports alongside the weighted one.",
+    )
+
+
 CHARTS = {
+    "power": _power_chart,
     "calibration": _calibration_chart,
     "surface": _surface_chart,
     "distribution": _distribution_chart,

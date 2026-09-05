@@ -665,12 +665,24 @@ time?**
 
 ```python
 epa = MODELS.NFL.epa_per_play(game)
-epa.home  # +0.18 -- the home offense, in expected points per snap
-epa.away  # +0.47 -- the away offense, on its own snaps
-epa.net  # -0.29 -- the home team's margin, which is what a table sorts on
+
+# Weighted -- what each offense did while the game was still in doubt.
+epa.home  # +0.18
+epa.away  # +0.47
+epa.net  # -0.29 -- the away team was much the better side while it mattered
+
+# Flat -- every snap counted once. The one to rank a season on.
+epa.home_unweighted  # +0.37
+epa.away_unweighted  # +0.38
+epa.net_unweighted  # -0.01 -- over the whole game they were level
+
 epa.home_plays  # 64 snaps
-epa.home_weight  # 33.6 of them -- what the average actually covers
+epa.home_weight  # 33.6 of them -- what the weighted average covers
 ```
+
+That gap is the point of reporting both. The home team's flat number is double
+its weighted one, because it piled up expected points after the game was
+decided.
 
 Expected points added is the difference between what a situation was worth
 before a snap and what it's worth after it, signed for the team that had the
@@ -932,6 +944,34 @@ team did while the game was live; 0.0 turns the weighting off. What 2.0 costs
 is precision, and enough of it to matter: read that section before you build
 anything that ranks teams on this.
 
+### Two numbers, and which one to read
+
+`epa_per_play` returns each offense's number twice — weighted and flat. They
+average the same bounded EPA over the same snaps and differ only in the
+weighting, so both come off one pass and having both costs nothing.
+
+| | what it is | what it's for |
+| --- | --- | --- |
+| `home` | weighted by `competitiveness` | **describing one game** — the closest a whole-game number gets to what the team did while it was in doubt |
+| `home_unweighted` | every snap counted once | **estimating a team** — the one to rank on, and to add up across a season |
+
+That split is a finding, not a hedge. Garbage time moves a game's number by
+**0.11** on average, and almost all of that is *noise*: the mean signed error
+is under 0.015 in both leagues. Noise is the whole error on a single game and
+there's nothing to average it against — so the weighted number wins there. Over
+a season the noise averages down on its own, while the sample the weighting
+spent to remove it never comes back — so the flat number wins there, and by
+enough to matter:
+
+| | reliability vs points/play | |
+| --- | --- | --- |
+| | NFL | NCAAFB |
+| `home_unweighted` | **+0.066** | **+0.113** |
+| `home` (power 2) | +0.003 | −0.004 |
+
+Both are bounded — the clip helps on every target measured, so it isn't what
+these two differ about. The unclipped per-play numbers are on `plays`.
+
 ### Adding games up
 
 **A weighted sum, not a mean of means.** A game contributes
@@ -1017,12 +1057,18 @@ is what makes this a measurement rather than arithmetic: the weight fades
 inside the live window too, so a high enough power averages the coin-flip snaps
 rather than the live game.
 
-So both defaults are measured. `DEFAULT_CLIP = 5.0` sits on the ordinary
-ceiling of what one snap does; `DEFAULT_WEIGHT_POWER = 2.0` is where the
-description is best. The trade it makes is explicit: **the shipped number is
-the best description of what a team did while games were live, and at that
-setting it is not a better predictor than the box score.** If you want a number
-to rank teams by, `weight_power=1.0` — or `0.0` — is a keyword argument away.
+**Is there a sweet spot in between?** A finer sweep says no. Reliability rises
+slightly and falls in both leagues — a real bias-variance optimum, peaking at
+0.10–0.15 in the NFL and 0.05 in college — but the peak is worth +0.006 and
++0.001, neither significant, and a power that low closes under a tenth of the
+descriptive gap. By 0.3 college is already behind power 0.
+
+So there's no compromise that does both jobs, which is why the package reports
+**both endpoints** instead of picking one: `home_unweighted` is the best
+estimate of a team, `home` at power 2 is the best description of a game. Both
+defaults are measured — `DEFAULT_CLIP = 5.0` sits on the ordinary ceiling of
+what one snap does, and `DEFAULT_WEIGHT_POWER = 2.0` is where the description
+stops improving.
 
 ### Three things this one isn't
 
