@@ -17,7 +17,7 @@
     2025
   ],
   "clip": 5.0,
-  "weight_power": 1.0,
+  "weight_power": 2.0,
   "n_fit_games": 12205,
   "n_test_games": 4735,
   "skill": {
@@ -858,7 +858,7 @@
       "p99.9": 8.047
     },
     "beyond_clip": 0.0119,
-    "effective_play_share": 0.5456
+    "effective_play_share": 0.4283
   },
   "split_half": {
     "team_seasons": 733,
@@ -868,19 +868,19 @@
     "metrics": {
       "shipped": {
         "reliability": {
-          "r": 0.5115,
-          "low": 0.4481,
-          "high": 0.5723
+          "r": 0.464,
+          "low": 0.3945,
+          "high": 0.529
         },
         "all_scoring": {
-          "r": 0.4696,
-          "low": 0.411,
-          "high": 0.525
+          "r": 0.4461,
+          "low": 0.387,
+          "high": 0.5015
         },
         "live_scoring": {
-          "r": 0.2486,
-          "low": 0.1826,
-          "high": 0.3105
+          "r": 0.2365,
+          "low": 0.171,
+          "high": 0.2977
         }
       },
       "unadjusted": {
@@ -1124,22 +1124,22 @@
     },
     "epa_vs_points": {
       "reliability": {
-        "difference": 0.0436,
-        "low": -0.0298,
-        "high": 0.1089,
-        "p_better": 0.902
+        "difference": -0.0038,
+        "low": -0.0852,
+        "high": 0.0695,
+        "p_better": 0.477
       },
       "all_scoring": {
-        "difference": 0.0033,
-        "low": -0.0338,
-        "high": 0.039,
-        "p_better": 0.575
+        "difference": -0.0201,
+        "low": -0.0604,
+        "high": 0.0194,
+        "p_better": 0.171
       },
       "live_scoring": {
-        "difference": 0.0063,
-        "low": -0.0338,
-        "high": 0.046,
-        "p_better": 0.611
+        "difference": -0.0057,
+        "low": -0.0507,
+        "high": 0.0399,
+        "p_better": 0.409
       }
     },
     "unadjusted_vs_points": {

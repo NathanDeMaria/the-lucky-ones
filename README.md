@@ -665,11 +665,11 @@ time?**
 
 ```python
 epa = MODELS.NFL.epa_per_play(game)
-epa.home  # +0.09 -- the home offense, in expected points per snap
-epa.away  # -0.04 -- the away offense, on its own snaps
-epa.net  # +0.13 -- the home team's margin, which is what a table sorts on
-epa.home_plays  # 68 snaps
-epa.home_weight  # 51.2 of them -- what the average actually covers
+epa.home  # +0.18 -- the home offense, in expected points per snap
+epa.away  # +0.47 -- the away offense, on its own snaps
+epa.net  # -0.29 -- the home team's margin, which is what a table sorts on
+epa.home_plays  # 64 snaps
+epa.home_weight  # 33.6 of them -- what the average actually covers
 ```
 
 Expected points added is the difference between what a situation was worth
@@ -892,12 +892,13 @@ post EPA per play that measures the score rather than the team.
 Each play is weighted by how much its game was still in doubt:
 
 ```
-weight = 4 * p * (1 - p)
+weight = (4 * p * (1 - p)) ** weight_power      # weight_power ships at 2.0
 ```
 
-on the win probability at that snap — which is the variance of the game's
-outcome at that moment, scaled to peak at 1. A coin-flip game weighs 1.00, a
-three-score game 0.36, a decided one 0.04.
+on the win probability at that snap. The base is the variance of the game's
+outcome at that moment, scaled to peak at 1; the exponent decides how sharply
+it falls away. At the shipped power a coin-flip game weighs 1.00, a
+three-score game 0.13, and a decided one 0.0016.
 
 That's chosen over the usual garbage-time *filter* — drop everything outside
 0.05 to 0.95 — because a filter puts a cliff in the middle of the fourth
@@ -913,22 +914,23 @@ of the number in the way `GameControl.seconds` is:
 
 Over every season of both leagues from 2014 (`make bounds` again):
 
-| | effective play share | median shift in a team's game number | p95 |
+| | mean play weight | median shift in a team's game number | p95 |
 | --- | --- | --- | --- |
-| NFL | 0.64 – 0.68 | 0.05 – 0.07 | 0.22 – 0.28 |
-| NCAAFB | 0.53 – 0.55 | 0.06 – 0.07 | 0.31 – 0.37 |
+| NFL | 0.52 – 0.57 | 0.07 – 0.09 | 0.30 – 0.39 |
+| NCAAFB | 0.41 – 0.44 | 0.09 – 0.10 | 0.44 – 0.54 |
 
-Two readings. A season of NFL snaps is worth about two thirds of its count
-once the decided stretches are down-weighted, and a season of college snaps
-barely more than half — college has more blowouts, and the metric says so.
-And the shift is not ceremony: the bound and the weighting together move a
-team's game number by about 0.06 typically and 0.3 at the tail, against a
-spread between good and bad offenses of a few tenths.
+Two readings. A season of NFL snaps is worth a little over half its count once
+the decided stretches are down-weighted, and a season of college snaps well
+under half — college has more blowouts, and the metric says so. And the shift
+is not ceremony: the bound and the weighting together move a team's game
+number by about 0.08 typically and 0.4 at the tail, against a spread between
+good and bad offenses of a few tenths.
 
-`weight_power` is the exponent, and there's no measurement that settles it the
-way the clip is settled — it's a statement about what you want the number to
-mean. 1.0 is the unexaggerated choice: the weight *is* the outcome's variance,
-with nothing done to it. 0.0 turns the weighting off.
+`weight_power` is the exponent, and it *is* measured — see [Is it any
+good?](#is-it-any-good) below. 2.0 is where the number best recovers what a
+team did while the game was live; 0.0 turns the weighting off. What 2.0 costs
+is precision, and enough of it to matter: read that section before you build
+anything that ranks teams on this.
 
 ### Adding games up
 
@@ -965,56 +967,62 @@ random into two sets 1,500 times over:
 
 | | reliability | predicts scoring | predicts live scoring |
 | --- | --- | --- | --- |
-| EPA/play (NFL) | **0.589** | **0.549** | **0.471** |
+| **EPA/play, knobs off** (NFL) | **0.617** | **0.555** | **0.483** |
+| EPA/play, shipped (NFL) | 0.554 | 0.530 | 0.453 |
 | points/play (NFL) | 0.551 | 0.539 | 0.446 |
-| EPA/play (NCAAFB) | **0.511** | **0.470** | **0.249** |
+| **EPA/play, knobs off** (NCAAFB) | **0.567** | **0.489** | **0.261** |
+| EPA/play, shipped (NCAAFB) | 0.464 | 0.446 | 0.236 |
 | points/play (NCAAFB) | 0.468 | 0.466 | 0.242 |
 
-EPA beats the box score in six of six cells, though none of those margins
-clears significance on its own.
+Two readings, and they must not be run together. **As a measurement, EPA per
+play beats the box score** — unadjusted it wins all six cells, by +0.099 on
+reliability in college (P = 1.00) and +0.065 in the NFL. **At the shipped
+weighting that edge is spent**, and the number sits level with points per play.
 
-**And what the weighting costs.** A plain sweep of `weight_power` makes it look
-bad, but that sweep can't be read: down-weighting a blowout is nearly the same
-as dropping it, so the weighted number works from a different pool of games
-than the unweighted one. `make weighting` holds the pool still — comparing the
-weighted number against the unweighted one *thinned to the same effective
-sample* (Kish's `n_eff`), so only the choice of snaps differs:
+### What the weighting costs, and what it buys
 
-| at power 1 | NFL | NCAAFB |
+A plain sweep of `weight_power` makes the weighting look bad, but that sweep
+can't be read: down-weighting a blowout is nearly the same as dropping it, so
+the weighted number works from a different pool of games than the unweighted
+one. `make weighting` holds the pool still — comparing against the unweighted
+number *thinned to the same effective sample* (Kish's `n_eff`), so only the
+choice of snaps differs. The penalty decomposes exactly, and it is all sample:
+
+| at power 2 | NFL | NCAAFB |
 | --- | --- | --- |
-| effective sample kept | 81% | 70% |
-| what that precision costs, in reliability | −0.031 | −0.072 |
-| what the weighting's snap choice buys back | +0.026 | +0.004 |
+| effective sample kept | 70% | 57% |
+| what that precision costs, in reliability | −0.065 | −0.120 |
+| what the weighting's snap choice buys back | +0.039 | +0.005 |
 
-**The whole penalty is the sample.** The snaps the weighting picks are, if
-anything, marginally better than a random draw of the same size — positive in
-six of six cells, significant in none. So the weighting costs precision and
-nothing else.
+The snaps it picks are, if anything, marginally better than a random draw of
+the same size — positive in six of six cells, significant in none. So the
+weighting costs precision and nothing else.
 
-**And what it buys.** Everything above is predictive; the complaint the
-weighting exists for is descriptive — *that 0.31 wasn't real, it was a rout*.
-So take the unweighted mean over only the live snaps (0.2–0.8 WP) as what the
-team did while it mattered, and see how close each whole-game number lands:
+**What it buys** is the thing it exists for, which was never predictive. Take
+the unweighted mean over only the live snaps (0.2–0.8 WP) as what the team did
+while it mattered, and see how close each whole-game number lands:
 
 | | gap to the live-only mean | closed | sample kept |
 | --- | --- | --- | --- |
 | power 0 — no weighting | 0.113 | — | 100% |
-| **power 1 — shipped** | **0.065** | **43%** | **86%** |
-| power 2 — best | 0.053 | 53% | 76% |
+| power 1 | 0.065 | 43% | 86% |
+| **power 2 — shipped, and the best** | **0.053** | **53%** | **76%** |
 | power 5 | 0.081 | 28% | 60% |
 
 Garbage time is worth about **0.11** to a team's game number (0.26 at the 90th
 percentile), against a good-to-bad offense spread of a few tenths — so the
-problem is real. The shipped power removes 43% of it. NFL and college trace
-almost the same curve.
+problem is real, and the shipped power removes over half of it. NFL and college
+trace almost the same curve. It **bottoms at power 2 and climbs again**, which
+is what makes this a measurement rather than arithmetic: the weight fades
+inside the live window too, so a high enough power averages the coin-flip snaps
+rather than the live game.
 
-The curve **bottoms at power 2 and climbs again**, which is what makes this a
-test rather than arithmetic: `4p(1−p)` fades inside the live window too, so a
-high enough power averages the coin-flip snaps rather than the live game. So
-`DEFAULT_CLIP` is measured, and `DEFAULT_WEIGHT_POWER = 1.0` is the
-conservative end of a flat stretch — with power 2 a defensible alternative at
-roughly one more point of sample per point of gap closed, and anything past 3
-strictly worse.
+So both defaults are measured. `DEFAULT_CLIP = 5.0` sits on the ordinary
+ceiling of what one snap does; `DEFAULT_WEIGHT_POWER = 2.0` is where the
+description is best. The trade it makes is explicit: **the shipped number is
+the best description of what a team did while games were live, and at that
+setting it is not a better predictor than the box score.** If you want a number
+to rank teams by, `weight_power=1.0` — or `0.0` — is a keyword argument away.
 
 ### Three things this one isn't
 

@@ -239,10 +239,23 @@ def test_an_ordinary_play_is_left_exactly_alone():
 
 def test_a_coin_flip_game_weighs_one_and_a_decided_one_weighs_nothing():
     assert competitiveness(0.5) == pytest.approx(1.0)
-    assert competitiveness(0.9) == pytest.approx(0.36)
-    assert competitiveness(0.99) == pytest.approx(0.0396)
+    assert competitiveness(0.9) == pytest.approx(0.1296)
+    assert competitiveness(0.99) == pytest.approx(0.0016, abs=1e-4)
     # Symmetric: it is about the game being in doubt, not about who is ahead.
     assert competitiveness(0.2) == pytest.approx(competitiveness(0.8))
+
+
+def test_the_weight_falls_away_faster_at_a_higher_power():
+    """
+    Which is the whole content of the exponent, and why it has a measured
+    value rather than an obvious one: it decides how much of a decided game
+    still counts.
+    """
+    three_scores = [competitiveness(0.9, power) for power in (0.5, 1.0, 2.0, 3.0)]
+
+    assert three_scores == sorted(three_scores, reverse=True)
+    # A coin flip is the fixed point -- every power leaves it at 1.
+    assert {competitiveness(0.5, power) for power in (0.0, 0.5, 1.0, 2.0)} == {1.0}
 
 
 def test_the_power_turns_the_weighting_off():

@@ -25,7 +25,8 @@ mean that this module fixes rather than leaves to the caller:
   and kneels; a team down 28 throws deep on every down against a defense that
   has stopped covering. Both post EPA per play that measures the score rather
   than the team. Each play is weighted by how much its game was still in
-  doubt, which is exactly `4p(1-p)` on the win probability at the snap.
+  doubt -- `4p(1-p)` on the win probability at the snap, raised to
+  `weight_power`, which is 2.0 for a measured reason.
 
 Both are knobs, both are keyword arguments at every call site, and both are
 off at their identity values -- `clip=inf, weight_power=0.0` is the plain
@@ -78,27 +79,60 @@ it by 0.04. The play still dominates the game; it just doesn't get to be three
 plays.
 """
 
-DEFAULT_WEIGHT_POWER = 1.0
+DEFAULT_WEIGHT_POWER = 2.0
 """
-The exponent on `competitiveness`. 1.0 weights by it, 0.0 turns it off.
+The exponent on `competitiveness`. 0.0 turns the weighting off.
 
-Between them, a power below 1 keeps more of the blowout and a power above 1
-throws away more of it. There is no measurement that settles this the way
-`DEFAULT_CLIP` is settled -- it is a statement about what you want the number
-to mean -- so 1.0 is the unexaggerated choice: the weight *is* the variance
-of the game's outcome at that snap, with nothing done to it.
+Measured, on the question the weighting exists for. Take the unweighted mean
+over only the snaps where the game was in doubt -- 0.2 to 0.8 win probability
+-- as what a team did while it mattered, and ask how close a whole-game number
+lands to it. Garbage time moves that number by 0.11 on an average team-game
+and 0.26 at the ninetieth percentile, which against a good-to-bad offense
+spread of a few tenths is not a rounding error. Sweeping the power over 1,321
+NFL and 6,484 NCAAFB held-out team-games:
+
+    power   distance   gap closed   sample kept
+      0.0      0.113           --          100%
+      1.0      0.065          43%           86%
+      2.0      0.053          53%           76%
+      3.0      0.057          49%           69%
+      5.0      0.081          28%           60%
+
+Both leagues trace that curve to within a point or two of each other, and it
+has a floor at 2 -- which is the part that makes this a measurement rather
+than arithmetic. `4p(1-p)` fades *inside* the live window too (a snap at 0.2
+carries 0.64), so a large enough power stops averaging the live game and
+starts averaging the coin-flip snaps inside it. By 5 it is worse than 0.5.
+`validate.py weighting` is the measurement.
+
+What that costs is precision and, as far as anything here can measure,
+precision only: held at a fixed effective sample the weighting's snaps are no
+worse than a random draw of the same size (see the same command). So the
+exponent buys description at a price in sample, and 2.0 is where the
+description stops improving.
+
+**1.0 is the other defensible answer**, and what it costs is worth knowing
+before you take it: ten points less of the gap for ten points more of sample.
+It also has an interpretation this doesn't -- at 1.0 the weight *is* the
+variance of the game's outcome at that snap, and at 2.0 it is that squared,
+which is a shape rather than a quantity. That reading is what the default used
+to be chosen on. It lost to the measurement.
 """
 
 
 @overload
-def competitiveness(win_probability: float, power: float = 1.0) -> float: ...
+def competitiveness(
+    win_probability: float, power: float = DEFAULT_WEIGHT_POWER
+) -> float: ...
 
 
 @overload
-def competitiveness(win_probability: np.ndarray, power: float = 1.0) -> np.ndarray: ...
+def competitiveness(
+    win_probability: np.ndarray, power: float = DEFAULT_WEIGHT_POWER
+) -> np.ndarray: ...
 
 
-def competitiveness(win_probability, power=1.0):
+def competitiveness(win_probability, power=DEFAULT_WEIGHT_POWER):
     """
     How much the game was still in doubt at a snap, on a 0-to-1 scale.
 
@@ -107,9 +141,12 @@ def competitiveness(win_probability, power=1.0):
     snaps at once shouldn't have to reimplement the formula to do it, and
     `validate.py` is that caller.
 
-    `4p(1-p)`, which is the variance of the game's outcome at that moment,
-    scaled to peak at 1. A coin-flip game weighs 1.00, a three-score game
-    (p = 0.9) weighs 0.36, a decided one (p = 0.99) weighs 0.04.
+    `4p(1-p)` raised to `power`. The base is the variance of the game's
+    outcome at that moment, scaled to peak at 1, and the exponent decides how
+    sharply it falls away -- see `DEFAULT_WEIGHT_POWER`, which is 2.0 because
+    that is where it best recovers what a team did while the game was live.
+    At that power a coin-flip game weighs 1.00, a three-score game (p = 0.9)
+    weighs 0.13, and a decided one (p = 0.99) weighs 0.0016.
 
     Chosen over the usual garbage-time *filter* -- drop everything outside
     0.05 to 0.95 -- because a filter puts a cliff in the middle of the fourth
@@ -119,9 +156,9 @@ def competitiveness(win_probability, power=1.0):
     someone shaped.
 
     It also disposes of the kneel-downs and the clock-killing runs without
-    ever naming them: they happen at p above 0.97, where they weigh about
-    nothing. There is no list of play types here and there doesn't need to
-    be.
+    ever naming them: they happen at p above 0.97, where they weigh a
+    thousandth of a live snap. There is no list of play types here and there
+    doesn't need to be.
     """
     return (4.0 * win_probability * (1.0 - win_probability)) ** power
 

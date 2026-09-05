@@ -16,9 +16,10 @@ this page was typed by hand.
 
 The short version: the fit has real skill, it is well calibrated, it prices
 the field the way football does, and the metric built on it beats the box
-score. Both knobs come out defensible — the bound on the measurement, the
-weighting on a price it turns out to be paying for precision rather than
-accuracy — and the most valuable thing this validation did was find a bug.
+score. Both knobs come out defensible, and the weighting turns out to be a
+straight trade — the best available description of what a team did while games
+were live, bought with the number's predictive edge over the box score. The
+most valuable thing this validation did was find a bug.
 
 ---
 
@@ -180,20 +181,23 @@ split-half evidence is below; both point the same way.
 
 ## The weighting
 
-`weight = 4p(1−p)` on the win probability at the snap — the variance of the
-game's outcome, scaled to peak at 1.
+`4p(1−p)` on the win probability at the snap — the variance of the game's
+outcome, scaled to peak at 1 — raised to `weight_power`, which ships at **2.0**
+because that is where it best recovers what a team did while the game was live.
+See [Describing one game](#describing-one-game) for the measurement that picks
+it.
 
 ![The weighting curve](weighting-nfl.svg)
 
-| effective play share at power 1 | NFL | NCAAFB |
+| at power 2 | NFL | NCAAFB |
 | --- | --- | --- |
-| | 0.67 | 0.55 |
+| mean play weight | 0.55 | 0.43 |
+| effective sample, Kish | 70% | 57% |
 
-College keeps barely half its snaps' weight, against the NFL's two thirds.
-College has more blowouts and the metric says so. On Kish's effective-sample
-measure — the one that says what the precision actually is — that's 70% and
-81%. [What that costs](#the-weighting-is-a-precision-cost-and-nothing-else) is
-measured below.
+College keeps well under half its snaps' weight against the NFL's half-plus;
+college has more blowouts and the metric says so. Kish's effective-sample
+measure is the one that says what the precision actually is, and [what it
+costs](#the-weighting-is-a-precision-cost-and-nothing-else) is measured below.
 
 ---
 
@@ -222,27 +226,38 @@ Three targets, because they disagree, and the disagreement is the finding:
 
 ![NCAAFB split-half](split-half-ncaafb.svg)
 
-### EPA beats the box score
+### EPA beats the box score — and the weighting spends that edge
 
 | NCAAFB, 733 team-seasons | reliability | all scoring | live scoring |
 | --- | --- | --- | --- |
-| EPA/play, shipped | **0.511** | **0.470** | **0.249** |
-| EPA/play, unadjusted | 0.567 | 0.489 | 0.261 |
+| EPA/play, both knobs off | **0.567** | **0.489** | **0.261** |
+| EPA/play, shipped (clip 5, power 2) | 0.464 | 0.446 | 0.236 |
 | points per play | 0.468 | 0.466 | 0.242 |
 
 | NFL, 91 team-seasons | reliability | all scoring | live scoring |
 | --- | --- | --- | --- |
-| EPA/play, shipped | **0.589** | **0.549** | **0.471** |
-| EPA/play, unadjusted | 0.617 | 0.555 | 0.483 |
+| EPA/play, both knobs off | **0.617** | **0.555** | **0.483** |
+| EPA/play, shipped (clip 5, power 2) | 0.554 | 0.530 | 0.453 |
 | points per play | 0.551 | 0.539 | 0.446 |
 
-EPA beats points per play on all three targets in both leagues. This is the
-comparison the design is cleanest for: both numbers are computed over the same
-games and the same deal, so whatever the schedule does, it does to both. The
-margins are small in absolute terms (+0.04 on reliability, P = 0.69 in the NFL
-and 0.90 in college) and none clears a conventional significance bar on its
-own — but the direction is the same in six of six cells, which is the thing to
-read.
+Two separate readings, and they must not be run together.
+
+**As a measurement, EPA per play beats the box score, clearly.** Unadjusted, it
+wins all six cells — by +0.099 on reliability in college (P = 1.00) and +0.065
+in the NFL (P = 0.83). This is the comparison the design is cleanest for: both
+numbers come off the same games and the same deal, so whatever the schedule
+does, it does to both.
+
+**At the shipped weighting, that edge is spent.** Power 2 sits level with
+points per play — +0.003 / −0.009 / +0.007 in the NFL, −0.004 / −0.020 /
+−0.006 in college. Not behind by anything significant, but not ahead either.
+
+That is the trade the default makes, stated plainly: the shipped number is the
+best available *description* of what a team did while games were live, and at
+this setting it is **not** a better *predictor* than points per play. The next
+two sections are where that comes from — the precision it costs, and the
+description it buys. `weight_power=0.0` returns the predictive edge at any call
+site.
 
 ### The bound earns its place
 
@@ -263,15 +278,12 @@ football, where it sits on the ordinary ceiling of what one snap does.
 
 ### The weighting is a precision cost, and nothing else
 
-The sweep above compares a weighted number against an unweighted one, and
-those two are not computed over the same football. Down-weighting a blowout to
-near nothing is close to dropping it, so the weighted variant works from a
-smaller and differently-chosen pool of games. Two things move at once — **how
-snaps are combined**, which is what's being argued about, and **how many snaps
-survive**, which is an artifact of the argument. Either could produce the
-penalty. Read at face value the sweep says the weighting costs accuracy
-monotonically in the power; that reading is not available until the two are
-separated.
+The sweep above compares a weighted number against an unweighted one, and those
+two are not computed over the same football. Down-weighting a blowout to near
+nothing is close to dropping it, so the weighted variant works from a smaller
+and differently-chosen pool of games. Two things move at once — **how snaps are
+combined**, which is what's being argued about, and **how many snaps survive**,
+which is an artifact of the argument. Either could produce the penalty.
 
 `make weighting` separates them, two ways.
 
@@ -290,70 +302,65 @@ approximation to it.
 | NCAAFB, 733 team-seasons | reliability | all scoring | live scoring |
 | --- | --- | --- | --- |
 | no weighting | 0.573 | 0.494 | 0.264 |
-| no weighting, thinned to the same precision | 0.496 | 0.459 | 0.245 |
-| **weighted, power 1** | **0.500** | **0.469** | **0.249** |
+| no weighting, thinned to the same precision | 0.447 | 0.436 | 0.233 |
+| **weighted, power 2** | **0.452** | **0.444** | **0.237** |
 
 | NFL, 91 team-seasons | reliability | all scoring | live scoring |
 | --- | --- | --- | --- |
 | no weighting | 0.617 | 0.554 | 0.479 |
-| no weighting, thinned to the same precision | 0.560 | 0.528 | 0.456 |
-| **weighted, power 1** | **0.586** | **0.547** | **0.466** |
+| no weighting, thinned to the same precision | 0.513 | 0.506 | 0.437 |
+| **weighted, power 2** | **0.552** | **0.528** | **0.448** |
 
-The whole penalty decomposes, and the decomposition is exact — what the
-weighting appears to cost is the sample it spends plus what it buys back by
-choosing snaps:
+The penalty decomposes, and the decomposition is exact — what the weighting
+appears to cost is the sample it spends plus what it buys back by choosing
+snaps:
 
 | NCAAFB | reliability | all scoring | live scoring |
 | --- | --- | --- | --- |
-| what it costs (weighted − unweighted) | −0.072 | −0.025 | −0.014 |
-| …the sample it spends (thinned − unweighted) | **−0.077** (P 0.00) | **−0.035** (P 0.00) | −0.019 (P 0.09) |
-| …what choosing snaps buys back (weighted − thinned) | +0.004 (P 0.56) | +0.009 (P 0.71) | +0.005 (P 0.60) |
+| what it costs (weighted − unweighted) | −0.120 | −0.049 | −0.026 |
+| …the sample it spends (thinned − unweighted) | **−0.126** (P 0.00) | **−0.058** (P 0.00) | −0.031 (P 0.06) |
+| …what choosing snaps buys back (weighted − thinned) | +0.005 (P 0.58) | +0.009 (P 0.66) | +0.005 (P 0.57) |
 
 | NFL | reliability | all scoring | live scoring |
 | --- | --- | --- | --- |
-| what it costs | −0.031 | −0.007 | −0.013 |
-| …the sample it spends | −0.057 (P 0.14) | −0.026 (P 0.16) | −0.023 (P 0.23) |
-| …what choosing snaps buys back | +0.026 (P 0.66) | +0.019 (P 0.71) | +0.010 (P 0.58) |
+| what it costs | −0.065 | −0.026 | −0.031 |
+| …the sample it spends | −0.104 (P 0.07) | −0.048 (P 0.10) | −0.042 (P 0.14) |
+| …what choosing snaps buys back | +0.039 (P 0.66) | +0.022 (P 0.69) | +0.011 (P 0.61) |
 
 **Every point of the penalty is the sample.** The snaps the weighting chooses
 are, if anything, marginally better than a random draw of the same size — the
 selection term is positive in six of six cells, and nowhere near significance
-in any of them.
+in any of them. That was true at power 1 and it is still true at power 2, with
+the sample cost roughly doubled.
 
-**Fixed game set.** Separately, restrict every variant to the games that
-stayed in doubt, so the pool is identical by construction and the weighting can
-only re-combine snaps *within* games it was always going to keep. Thinned there
-too, because the weighting still spends sample inside those games:
+**Fixed game set.** Separately, restrict every variant to the games that stayed
+in doubt, so the pool is identical by construction and the weighting can only
+re-combine snaps *within* games it was always going to keep. Thinned there too,
+because the weighting still spends sample inside those games:
 
 | weighted − thinned, same games | reliability | all scoring | live scoring |
 | --- | --- | --- | --- |
-| NCAAFB | +0.003 (P 0.52) | +0.018 (P 0.91) | −0.000 (P 0.48) |
-| NFL | −0.012 (P 0.41) | +0.001 (P 0.50) | −0.005 (P 0.47) |
+| NCAAFB | −0.003 (P 0.45) | +0.021 (P 0.83) | −0.003 (P 0.43) |
+| NFL | −0.022 (P 0.41) | −0.008 (P 0.42) | −0.015 (P 0.40) |
 
 Level, in both leagues, on all three targets.
 
 ### So what does the knob cost?
 
 Both controls agree, in both leagues: **the weighting is a pure precision cost
-with no measurable effect on accuracy.** The earlier caveat was right, and the
-raw sweep was measuring sample size.
+with no measurable effect on accuracy.** The raw sweep was measuring sample
+size.
 
-That makes the decision a clean one, with a price attached:
-
-| at power 1 | NFL | NCAAFB |
+| at power 2 | NFL | NCAAFB |
 | --- | --- | --- |
-| effective sample kept (Kish) | 81% | 70% |
-| what that costs in reliability | −0.031 | −0.072 |
-| what the weighting's snap choice buys | +0.026 | +0.004 |
+| effective sample kept (Kish) | 70% | 57% |
+| what that costs in reliability | −0.065 | −0.120 |
+| what the weighting's snap choice buys | +0.039 | +0.005 |
 
-You pay about 20% of the NFL's effective sample and 30% of college's, and you
-get a number that describes competitive football by construction. Nothing here
-argues you shouldn't — it says the bill, and it says the number you get for it
-is no more biased than the one you'd get by throwing away the same amount of
-data at random.
-
-`DEFAULT_WEIGHT_POWER = 1.0` stays. `weight_power=0.0` at any call site buys
-the precision back, and now you know exactly how much of it there is.
+So the bill is 30% of the NFL's effective sample and 43% of college's, and
+what it buys is in the next section. Nothing here says the number you get is
+*biased* — only that it is measured off less data, which is a different and
+more forgivable complaint.
 
 ### Describing one game
 
@@ -389,9 +396,9 @@ arithmetic:
 | --- | --- | --- |
 | power 0 — no weighting | 0.113 | 0.112 |
 | power 0.5 | 0.082 | 0.082 |
-| **power 1.0 — shipped** | **0.065** | **0.064** |
+| power 1.0 | 0.065 | 0.064 |
 | power 1.5 | 0.056 | 0.054 |
-| **power 2.0 — best** | **0.053** | **0.050** |
+| **power 2.0 — shipped, and the best** | **0.053** | **0.050** |
 | power 3.0 | 0.057 | 0.053 |
 | power 5.0 | 0.081 | 0.077 |
 
@@ -406,42 +413,48 @@ scoring environments, and the shape doesn't care.
 90th percentile, against a spread between good and bad offenses of a few
 tenths. The problem is real and it is not small.
 
-*The shipped power removes 42–43% of it,* in both leagues. Not all of it,
-because `4p(1−p)` is a taper rather than a cutoff — a snap at 0.85 still counts
-for a fifth.
+*The shipped power removes 53–55% of it,* which is the most any setting does.
+Not all of it, because the weight is a taper rather than a cutoff — at power 2
+a snap at 0.85 still counts for a twentieth.
 
 *The curve bottoms at power 2 and climbs again,* which is the part that
-couldn't have been arithmetic. Past 2 the weight piles onto the coin-flip snaps
-and the number drifts away from the live-game average it was chasing. By power
-5 it is worse than power 0.5.
+couldn't have been arithmetic — and it is why the default sits there. Past 2
+the weight piles onto the coin-flip snaps and the number drifts away from the
+live-game average it was chasing. By power 5 it is worse than power 0.5.
 
-So power 1 is not the descriptive optimum. Both halves of the trade, from the
-same computation, per team-game:
+Both halves of the trade, from the same computation, per team-game:
 
 | | gap closed (NFL) | sample kept | gap closed (NCAAFB) | sample kept |
 | --- | --- | --- | --- | --- |
 | power 0.5 | 28% | 93% | 27% | 91% |
-| **power 1.0 — shipped** | **43%** | **86%** | **42%** | **83%** |
+| power 1.0 | 43% | 86% | 42% | 83% |
 | power 1.5 | 50% | 80% | 51% | 76% |
-| power 2.0 | 53% | 76% | 55% | 71% |
+| **power 2.0 — shipped** | **53%** | **76%** | **55%** | **71%** |
 | power 3.0 | 49% | 69% | 52% | 64% |
 
 *(These are Kish shares averaged per team-game, so they run a little higher
 than the per-half-season figures in the precision table above — same formula,
 smaller unit.)*
 
-The trade is close to one for one: going from 1 to 2 buys another ten to
-thirteen points of the gap for ten to twelve points of sample. And the first
-tranche of that sample — going from 0 to 1 — is the one whose predictive cost
-was measured above at −0.031 reliability in the NFL and −0.072 in college, so
-a second tranche of the same size should be expected to cost about as much
-again.
+**Power 2 is the shipped default because this is the question the weighting
+exists to answer, and 2 is where the answer is best.** It closes 53–55% of the
+garbage-time gap; nothing else on the curve does better, and past 3 you pay
+more sample for a *worse* description.
 
-That makes power 2 a real option rather than a rejected one, and the choice
-between them a preference: **power 1 is the conservative end of a flat
-stretch** — most of the descriptive benefit at the smaller precision bill —
-and power 2 is the other end. What isn't defensible is anything past 3, where
-the curve turns and you pay more sample to get a *worse* description.
+The bill is the whole of what it costs. Against no weighting at all, power 2
+spends 30% of the NFL's effective sample and 43% of college's, which is
+−0.065 and −0.120 in reliability — and that is enough to hand back the
+number's predictive edge over points per play, as the [split-half
+tables](#epa-beats-the-box-score--and-the-weighting-spends-that-edge) show. So
+the shipped number is the best description on offer and, predictively, a wash
+against the box score.
+
+**Power 1 is the other defensible answer** and the trade between them is close
+to one for one: ten points less of the gap closed for ten points more of
+sample, which would restore roughly half the predictive edge. If you want a
+number to *rank* teams by rather than to describe a game with,
+`weight_power=1.0` — or `0.0` — is the setting, and it is a keyword argument
+at every call site.
 
 **What is still not tested:** whether the live-only average is itself the right
 thing to want. It is a definition everyone would accept, but it is a
