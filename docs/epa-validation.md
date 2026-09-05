@@ -163,19 +163,21 @@ same reason.
 
 ## The bound
 
-`DEFAULT_CLIP = 5.0`, and the distribution it is a statement about:
+`DEFAULT_CLIP = 3.0`, and the distribution it is a statement about:
 
 ![NFL EPA distribution](distribution-nfl.svg)
 
-| held-out 2023–2025 | NFL | NCAAFB |
+| held-out 2023–2025, percentile of \|EPA\| | NFL | NCAAFB |
 | --- | --- | --- |
-| 99th percentile of \|EPA\| | 5.20 | 5.24 |
-| share of plays beyond ±5 | 1.21% | 1.19% |
+| p90 | 2.15 | 2.26 |
+| **p95 — about where the bound sits** | **3.00** | **3.05** |
+| p99 | 5.20 | 5.24 |
 
-One play in a hundred, in both leagues, on seasons neither fit saw — and 5.03
-to 5.42 across every league-season from 2014 when `make bounds` measures the
-lot. The football argument is in [the README](../README.md#the-bound) and the
-split-half evidence is below; both point the same way.
+So the bound touches about one snap in twenty. That is more than the one in a
+hundred the first draft of this bounded, and [the sweep
+below](#the-bound-earns-its-place--but-50-is-not-where-the-measurement-puts-it)
+is why it moved: 5.0 was chosen from the football and lost to 3.0 on the
+measurement.
 
 ---
 
@@ -231,13 +233,13 @@ Three targets, because they disagree, and the disagreement is the finding:
 | NCAAFB, 733 team-seasons | reliability | all scoring | live scoring |
 | --- | --- | --- | --- |
 | EPA/play, both knobs off | **0.567** | **0.489** | **0.261** |
-| EPA/play, shipped (clip 5, power 2) | 0.464 | 0.446 | 0.236 |
+| EPA/play, shipped (clip 3, power 2) | 0.488 | 0.452 | 0.241 |
 | points per play | 0.468 | 0.466 | 0.242 |
 
 | NFL, 91 team-seasons | reliability | all scoring | live scoring |
 | --- | --- | --- | --- |
 | EPA/play, both knobs off | **0.617** | **0.555** | **0.483** |
-| EPA/play, shipped (clip 5, power 2) | 0.554 | 0.530 | 0.453 |
+| EPA/play, shipped (clip 3, power 2) | 0.571 | 0.536 | 0.461 |
 | points per play | 0.551 | 0.539 | 0.446 |
 
 Two separate readings, and they must not be run together.
@@ -248,9 +250,9 @@ in the NFL (P = 0.83). This is the comparison the design is cleanest for: both
 numbers come off the same games and the same deal, so whatever the schedule
 does, it does to both.
 
-**At the shipped weighting, that edge is spent.** Power 2 sits level with
-points per play — +0.003 / −0.009 / +0.007 in the NFL, −0.004 / −0.020 /
-−0.006 in college. Not behind by anything significant, but not ahead either.
+**At the shipped weighting, most of that edge is spent.** It stays ahead on
+reliability — +0.019 in the NFL and +0.020 in college — and is level or a
+little behind on the two scoring targets.
 
 Which is why `EpaPerPlay` reports both. `home` is the weighted number and is
 the better description of one game; `home_unweighted` counts every snap and is
@@ -260,7 +262,7 @@ than by a default. The next three sections are where that split comes from —
 the precision the weighting costs, the description it buys, and why no middle
 setting does both.
 
-### The bound earns its place — but 5.0 is not where the measurement puts it
+### Where the bound belongs
 
 Against no bound at all, with the weighting off:
 
@@ -269,10 +271,10 @@ Against no bound at all, with the weighting off:
 | 1 | 0.5029 | 0.4536 | 0.4907 | 0.2510 |
 | 2 | 0.5495 | 0.4885 | 0.4971 | 0.2613 |
 | 2.5 | 0.5565 | **0.4912** | **0.4972** | 0.2627 |
-| **3** | **0.5585** | 0.4897 | 0.4969 | 0.2637 |
+| **3 — shipped** | **0.5585** | 0.4897 | 0.4969 | 0.2637 |
 | 3.5 | 0.5580 | 0.4872 | 0.4963 | **0.2642** |
 | 4 | 0.5573 | 0.4850 | 0.4957 | **0.2642** |
-| **5 — shipped** | 0.5544 | 0.4811 | 0.4938 | 0.2631 |
+| 5 — what shipped first | 0.5544 | 0.4811 | 0.4938 | 0.2631 |
 | 7 | 0.5532 | 0.4803 | 0.4913 | 0.2621 |
 | none | 0.5548 | 0.4826 | 0.4890 | 0.2613 |
 
@@ -288,17 +290,20 @@ predictive targets are what bracket the answer: at clip 1 they *collapse* —
 five points off the NFL scoring correlation — because the bound has started
 destroying signal instead of noise.
 
-**The optimum is a plateau from 2.5 to 4, centred on 3, and the shipped 5.0
-sits outside it.** Clip 3 beats clip 5 on four of four predictive cells across
-both leagues, by 0.0006 to 0.0086.
+**The optimum is a plateau from 2.5 to 4 with 3 in the middle, and that is
+where the bound now sits.** Clip 3 beats clip 5 on four of four predictive
+cells across both leagues, by 0.0006 to 0.0086.
 
-That is a small margin against a real counter-argument. 5.0 was chosen because
-it sits on the ordinary ceiling of what one snap does — a 60-yard touchdown
-from your own 40 is +5.07 and a deep interception −5.12, so at 5 the bound
-touches only the compound play that was two events. At 3 it bites about one
-snap in twenty, including plays that are unambiguously football, and the number
-gets harder to describe. The measurement prefers 3; the interpretation prefers
-5; the gap between them is under a hundredth of a correlation.
+It is a small margin against a real counter-argument, and worth recording that
+the counter-argument lost. 5.0 shipped first, chosen because it sits on the
+ordinary ceiling of what one snap does — a 60-yard touchdown from your own 40
+is +5.07 and a deep interception −5.12, so a bound there touches only the
+compound play that was two events. At 3 it bites about one snap in twenty,
+including plays that are unambiguously football, and the number is that much
+less faithful as an account of a game. That is the cost. The measurement is
+consistent across two leagues and four cells, and the whole reason for building
+it was to let it beat an argument from football intuition — which it had
+already done once, on the weighting.
 
 ### The weighting is a precision cost, and nothing else
 
@@ -381,6 +386,9 @@ size.
 | what that costs in reliability | −0.065 | −0.120 |
 | what the weighting's snap choice buys | +0.039 | +0.005 |
 
+This trial runs on *unclipped* EPA, so it isolates the weighting from the
+bound. The clip is settled separately, above.
+
 So the bill is 30% of the NFL's effective sample and 43% of college's, and
 what it buys is in the next section. Nothing here says the number you get is
 *biased* — only that it is measured off less data, which is a different and
@@ -418,13 +426,13 @@ arithmetic:
 
 | mean distance from the live-only average | NFL | NCAAFB |
 | --- | --- | --- |
-| power 0 — no weighting | 0.113 | 0.112 |
-| power 0.5 | 0.082 | 0.082 |
-| power 1.0 | 0.065 | 0.064 |
-| power 1.5 | 0.056 | 0.054 |
-| **power 2.0 — shipped, and the best** | **0.053** | **0.050** |
-| power 3.0 | 0.057 | 0.053 |
-| power 5.0 | 0.081 | 0.077 |
+| power 0 — no weighting | 0.098 | 0.099 |
+| power 0.5 | 0.070 | 0.072 |
+| power 1.0 | 0.056 | 0.057 |
+| power 1.5 | 0.048 | 0.048 |
+| **power 2.0 — shipped, and the best** | **0.046** | **0.045** |
+| power 3.0 | 0.050 | 0.048 |
+| power 5.0 | 0.070 | 0.068 |
 
 Over 1,321 NFL and 6,484 college team-games with at least 20 live snaps. The
 two leagues trace almost the same curve, which is more reassurance than either
@@ -433,7 +441,7 @@ scoring environments, and the shape doesn't care.
 
 **Three things this says.**
 
-*Garbage time is worth about 0.11 to a team's game number* — and 0.26 at the
+*Garbage time is worth about 0.10 to a team's game number* — and 0.24 at the
 90th percentile, against a spread between good and bad offenses of a few
 tenths. The problem is real and it is not small.
 
