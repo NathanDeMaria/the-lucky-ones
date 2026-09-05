@@ -21,6 +21,11 @@ Both numbers here measure what happened, which is the right thing for them to
 measure and also what hands a team full credit for a fumble that bounced their
 way. `lucky_ones.luck` is the neighbouring question -- the same curve with the
 coin flips split evenly -- and it builds on these rather than replacing them.
+
+One thing the curve is used for that isn't about the curve: `lucky_ones.epa`
+reads a snap's win probability to decide how much that snap's football
+counts, on the grounds that a team up 28 in the fourth has stopped playing
+the same game. Nothing here knows about that; it's a consumer like any other.
 """
 
 from typing import NamedTuple, Sequence

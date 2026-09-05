@@ -15,6 +15,7 @@ points = MODELS.NCAAFB.curve(game)  # the graph
 control = MODELS.NCAAFB.game_control(game)  # the number under it
 earned = MODELS.NCAAFB.luck_adjusted_game_control(game)  # minus the bounces
 breaks = MODELS.NCAAFB.lucky_wp(game)  # and what the bounces were worth
+epa = MODELS.NCAAFB.epa_per_play(game)  # and how they actually played
 ```
 
 The fits ship inside the package, so that is the whole setup: no bucket, no
@@ -30,20 +31,26 @@ The pipeline, in the order the modules run:
 | `arrow` | the adapter from endgame's stored parquet to those protocols |
 | `game` | plays grouped into games, each with its home side worked out |
 | `state` | one snap as the model sees it, pre-snap score and all |
-| `features` | a state as a row of numbers |
-| `training` | games as a labelled matrix, split by game rather than by row |
+| `features` | a state as a row of numbers, for either model |
+| `training` | games as labelled matrices, split by game rather than by row |
 | `model` | `WinProbabilityModel`, and a logistic baseline |
+| `points` | `ExpectedPointsModel`: what a snap is worth on the scoreboard |
 | `metrics` | scoring the result |
 | `curve` | a game's win probability over time, and game control |
 | `luck` | the coin flips: the curve without them, and what they were worth |
-| `release` | the artifact a fit is stored as |
+| `epa` | expected points added per play, bounded and weighted |
+| `release` | the artifacts a fit is stored as |
 | `bundled` | the fits that ship with the package, and `MODELS` |
 
-`lucky_ones` itself exports five names — `MODELS`, `group_by_game`, and the
-three types on the boundary (`GamePlays`, `CurvePoint`, `GameControl`).
-That's what scoring a game needs. Everything else is one import deeper, in
-the module that owns it: `lucky_ones.model` for the fit, `lucky_ones.arrow`
-for stored plays, `lucky_ones.training` for building a training set. The
+There are two fits per league and they answer different questions: win
+probability is about the game, expected points is about the snap.
+`epa_per_play` is the one call that reads both.
+
+`lucky_ones` itself exports six names — `MODELS`, `group_by_game`, and the
+four types on the boundary (`GamePlays`, `CurvePoint`, `GameControl`,
+`EpaPerPlay`). That's what scoring a game needs. Everything else is one
+import deeper, in the module that owns it: `lucky_ones.model` for the fit,
+`lucky_ones.arrow` for stored plays, `lucky_ones.training` for a training set. The
 split isn't tidiness — the deeper half is where pyarrow and scikit-learn
 live, and keeping it out of the top-level import is what makes the small
 install work.
@@ -87,10 +94,25 @@ each caller:
 - **the scores are cumulative *after* the play.** The touchdown play already
   carries its touchdown, so training on it leaks the result into the
   features. `iter_states` takes the score from the previous play.
+- **and before 2014 they jitter.** Points appear on a play, come off again a
+  snap later and reappear where they belong, so reading the column alone
+  finds a touchdown and then an untouchdown. Win probability never notices —
+  it needs the final score, which is right in every season — but expected
+  points needs to know *when* the points went up, so
+  `lucky_ones.points.score_events` requires `scoring_play` to agree. See
+  [Reading the scores](#reading-the-scores).
+- **a timeout looks exactly like a snap.** It arrives with a down, a distance,
+  a yardline, a clock and a possession team, because the feed carries the
+  situation around it — so no test over the columns can see it, and only
+  `play_type` says it wasn't a play. With college kickoffs, which usually do
+  carry a down, that was 6.7% of NFL states and 9.1% of NCAAFB ones.
+  `lucky_ones.state.NOT_A_SNAP` is the filter; [the validation
+  report](docs/epa-validation.md#what-it-caught) is how it was found and what
+  it was costing.
 
 One column stands apart from the rest: `text`, ESPN's sentence about the play.
-Nothing the model sees is built from it — the eight features are numbers and
-flags — but it's the only place the *manner* of a play is recorded.
+Nothing either model sees is built from it — every feature in both lists is a
+number or a flag — but it's the only place the *manner* of a play is recorded.
 `is_turnover` says the ball changed hands; nothing but the text says it changed
 hands off a tipped ball. `lucky_ones.luck` is what reads it.
 
@@ -118,6 +140,9 @@ Holdout: brier 0.1344, log loss 0.4120 over 34 games
 Wrote lucky_ones/releases/nfl.json
 ```
 
+The shipped fits are the same command over 2006–2025: NFL brier 0.160 over 990
+held-out games, NCAAFB 0.139 over 5,188.
+
 Two ways to get the plays. `--root` reads a local copy of endgame's
 processed tree, which is reproducible and needs no credentials; without it
 the script reads the bucket through `endgame_aws`, which needs `AWS_PROFILE`
@@ -144,9 +169,17 @@ make curve ARGS="401671789 --week 3"
              "luck_adjusted_win_probability": 0.464}, ...]}
 ```
 
-`make rates` is the third entry point, and the one that answers "why those
-numbers?" for `DEFAULT_RETAINED` — see [What counts, and what it's
-worth](#what-counts-and-what-its-worth).
+The other model is a second command and a second file:
+
+```sh
+make train-ep ARGS="--league nfl --seasons 2014-2025 --root ./plays"
+make epa ARGS="401671490 --season 2024 --week 3"
+```
+
+`make rates` and `make bounds` are the two that answer "why those numbers?"
+for the constants — `DEFAULT_RETAINED` in [What counts, and what it's
+worth](#what-counts-and-what-its-worth), `DEFAULT_CLIP` in [The
+bound](#the-bound).
 
 No AWS and no data at all? `synthetic.py` writes a football-shaped tree in
 the same layout, which is what the tests train on:
@@ -171,7 +204,9 @@ points = MODELS.NFL.curve(game)  # one CurvePoint per snap
 control = MODELS.NFL.game_control(game)  # who controlled the game
 earned = MODELS.NFL.luck_adjusted_game_control(game)  # who earned it
 breaks = MODELS.NFL.lucky_wp(game)  # what the bounces were worth
+epa = MODELS.NFL.epa_per_play(game)  # how each offense actually played
 MODELS.NFL.metrics.brier_score  # how the fit scored on a holdout
+MODELS.NFL.expected_points_metrics.log_loss  # and the other fit
 MODELS.NFL.trained_on.seasons  # what it was fit on
 ```
 
@@ -200,6 +235,12 @@ control = game_control(points)
 `points` is one `CurvePoint` per snap, carrying period, clock, both scores
 and the home team's win probability — everything an axis label or a tooltip
 needs, so the consumer never goes back to the plays.
+
+**Each league is two files**, `nfl.json` and `nfl-ep.json`, read lazily and
+separately. A service that only draws curves never opens the second one, and
+a league with a win probability fit and no expected points fit works for
+everything except `epa_per_play` — which fails naming `make train-ep`, rather
+than at import.
 
 ### The two installs
 
@@ -616,6 +657,344 @@ went up, while the counterfactual is built from the snap itself. A play's worth
 of clock is small against a change of possession, but it's the floor under how
 precise either number can be.
 
+## EPA per play
+
+The three numbers above are all about the game. This one is about the
+football: **how much did each offense move the ball's value, a snap at a
+time?**
+
+```python
+epa = MODELS.NFL.epa_per_play(game)
+epa.home  # +0.09 -- the home offense, in expected points per snap
+epa.away  # -0.04 -- the away offense, on its own snaps
+epa.net  # +0.13 -- the home team's margin, which is what a table sorts on
+epa.home_plays  # 68 snaps
+epa.home_weight  # 51.2 of them -- what the average actually covers
+```
+
+Expected points added is the difference between what a situation was worth
+before a snap and what it's worth after it, signed for the team that had the
+ball:
+
+```
+EPA = (what the situation is worth now) - (what it was worth at the snap)
+```
+
+A 3-yard gain on third and 8 is negative. The punt that follows is only
+slightly negative. An interception is worth about as much as a touchdown, in
+the other direction. It's the one number play-by-play offers that is about a
+play rather than about a game, and unlike `game_control` it doesn't care who
+won — which is the whole reason to have it next to the others. A team can
+control 0.70 of a game it played worse in, and that gap is most of what
+there is to say about a team that keeps winning close ones.
+
+Two things happen between the raw per-play numbers and that average, and both
+are things a plain mean gets wrong rather than refinements on it: [a
+bound](#the-bound) on how much any one play can contribute, and [a
+weighting](#the-weighting) by how much the game was still in doubt when it
+happened. Both are keyword arguments at every call site, and both are off at
+their identity values:
+
+```python
+MODELS.NFL.epa_per_play(game, clip=float("inf"), weight_power=0.0)
+```
+
+is the plain unweighted mean of raw EPA, exactly — the same escape hatch
+`retained=1.0` is next door, and what the tests check.
+
+### Expected points
+
+`lucky_ones.points` is the second fit, and it answers the older, smaller
+question: **how many points is this situation worth to the team holding the
+ball?** The standard definition, and it's a definition about drives rather
+than about plays —
+
+```
+EP(state) = the expected value of the next score in this half,
+            signed from the point of view of the team with the ball
+```
+
+— so nobody has to decide what a play is worth. The football decides and the
+code counts. `MultinomialExpectedPoints` fits `P(kind | situation)` over the
+seven things that can happen next (touchdown, field goal or safety, for
+either side, or the half running out) and takes the expectation against
+`SCORE_VALUES`. Seven probabilities and a dot product, so the scoring path is
+numpy and nothing else, exactly like the logistic fit.
+
+Reading `predict_proba` is often better than reading the number: "31% this
+offense scores a touchdown, 18% the other one does" says more than the 2.1
+they average to.
+
+Being a classifier is also what keeps it honest. It can only ever return a
+number between −7 and +7, and no strange situation can push it out — which a
+regression on points could.
+
+What the shipped fits say, at four snaps whose value everyone already knows:
+
+| | 1st & 10, own 25 | 1st & 10, midfield | 1st & goal, the 2 | 3rd & 15, own 5 |
+| --- | --- | --- | --- | --- |
+| NFL | +1.11 | +2.43 | +5.94 | −1.99 |
+| NCAAFB | +0.80 | +2.41 | +5.62 | −2.46 |
+
+Note that the deep one is *negative*: on third and long from your own 5, the
+next points in the half are more often the other team's.
+
+Two things are deliberately not features, and they're the two you'd reach for
+first.
+
+**The score isn't** — not the margin, not the clock left in the game. A team
+down 28 in the fourth throws on every down and a team up 28 kneels, so the
+score genuinely predicts the next points, which is exactly why it stays out.
+Putting it in would fold "this game was over" into the expected value and
+leave EPA quietly measuring how far ahead you already were. Blowouts get
+handled where the distortion actually is — in [the weighting](#the-weighting)
+— and that's a knob a caller can turn off and look at. A coefficient isn't.
+
+**Which team is home isn't.** Home field is worth real points over a season,
+and including it would make the same snap worth more to one side than the
+other, so a home offense and an away offense could post the same EPA per play
+off different football.
+
+What is in it is 13 columns: three down indicators, `log_distance`,
+`goal_to_go`, a six-term linear spline in field position, the clock left in
+the *half*, and one interaction between the last two. The two unobvious ones
+earned their place against measurement rather than taste:
+
+- **The field is a spline, not a polynomial.** A quadratic was the first
+  thing tried, and it reads first and ten inside your own 10 as half a point
+  better than it is (+0.37 against a measured −0.16) — it has one bend to
+  spend, and the middle of the field outvotes both ends for it. A play from
+  there is one of the biggest EPAs in football, so the end of the curve is not
+  the part to approximate. Knots sit at the two 10-yard lines, the two 20s and
+  midfield, which is where football changes what it's doing.
+- **The clock is the half's, and it interacts with the field.** Time is what
+  stands between a drive and points, and it runs out at the half, not at the
+  end of the game. But a minute left isn't worth the same everywhere: a team
+  on its own 10 has nothing, a team on the opponent's 15 still has a field
+  goal. A clock level with no interaction has to split the difference, and it
+  misses both ends the same way — a couple of tenths too generous deep in your
+  own end with under a minute left, a couple of tenths too stingy in field
+  goal range. The interaction roughly halves both.
+
+```
+Fitting on 2433 games (358616 snaps), holding out 609 games
+  defense_field_goal       9.7% of snaps
+  ...
+  offense_touchdown       34.9% of snaps
+  1st and 10, own 25     +1.11 points
+  1st and 10, midfield   +2.43 points
+  1st and goal, the 2    +5.94 points
+  3rd and 15, own 5      -1.99 points
+Holdout: log loss 1.3189, mean absolute error 3.75 points over 609 games
+```
+
+`log(7)` = 1.95 is what a guess at the base rates gets, so 1.32 (NFL) and 1.26
+(NCAAFB) are fits that learned the situation. Both are held out by game, and
+[the validation report](docs/epa-validation.md) does the same thing more
+carefully — refitting on 2014–2022 and measuring on seasons the fit has never
+seen. The mean absolute error is large
+by construction — the next score is 7 or 0 or −3 and the fit says 2.1 — and its
+size is exactly why EPA is a per-play *average* rather than a per-play claim.
+
+The residual worth knowing: first and ten between your own 30 and 39 is
+over-priced by about half a point in both leagues, at every point on the clock.
+Nearly every snap there is a fresh drive after a kickoff, while a first down at
+your own 45 is one the offense earned on the way — so the truth is flat across
+that stretch and then jumps. Fixing it means telling the model how the ball got
+there, which is the same category of thing as the score, and it stays out for
+the same reason.
+
+### Reading the scores
+
+The label needs to know *when* the points went up, and that turns out to be
+the hard part. Before 2014, both leagues' score columns jitter: points land on
+a play, come off a snap later, and reappear where they belong. Counting the
+scoring the columns claim against the final score is the check:
+
+| points per game | the columns alone | with `scoring_play` agreeing | the actual final scores |
+| --- | --- | --- | --- |
+| NFL 2013 | 56.6 | **42.0** | 46.8 |
+| NFL 2024 | 46.3 | **46.0** | 45.8 |
+| NCAAFB 2010 | 67.0 | **49.2** | 52.3 |
+| NCAAFB 2018 | 58.9 | **56.7** | 56.9 |
+
+So `score_events` takes two witnesses — the column went up, *and* the feed
+flagged the play — which is the same shape of fix `luck._changed_possession`
+makes for `is_turnover`, and it errs the same way on purpose. What's left
+before 2014 is a false negative: about one score in ten where the flag and the
+jump landed on different rows, and a score this can't find just leaves its
+snaps labelled with whatever scored next. That's a quieter error than
+inventing a touchdown, which is what the alternative does.
+
+Ten percent is still too much to fit on, so **the shipped expected points fits
+start at 2014** while the win probability fits use all twenty seasons. The two
+need different things from the same data: a game's winner is right in every
+season, and the minute it was scored in isn't. 2014 is also where NCAAFB's
+`is_turnover` column stops being uniformly false — the play-by-play got better
+in both leagues at once.
+
+### The bound
+
+EPA has fat tails. Most snaps are worth a fraction of a point and a pick-six
+is worth eleven, so a game's mean is largely a report of whether one enormous
+play happened. `clip` bounds each play's contribution at ±`DEFAULT_CLIP`,
+which is **5.0**.
+
+`make bounds` is the measurement, and it runs through `play_epa`, so what
+comes back is the distribution the metric averages rather than a second
+opinion about it:
+
+```sh
+make bounds ARGS="--league nfl --seasons 2014-2025 --root ./plays"
+```
+
+| percentile of absolute EPA | **p99** | across the seasons measured |
+| --- | --- | --- |
+| NFL 2014–2025 | **5.03 – 5.38** | 1.02% – 1.41% of plays beyond ±5 |
+| NCAAFB 2014–2025 | **5.24 – 5.42** | 1.19% – 1.36% beyond |
+
+The 99th percentile is 5.03 to 5.42 across all twenty-four league-seasons from
+2014 on, so 5.0 bounds about one snap in a hundred and leaves the other
+ninety-nine exactly alone. The reason to believe that number isn't the percentile, though — it's
+that the football agrees with it. Ask the fit what the biggest ordinary snaps
+are worth:
+
+| the biggest things one snap does | NFL |
+| --- | --- |
+| 60-yard touchdown from your own 40 | **+5.07** |
+| interception at your own 25, returned to the spot | **−5.12** |
+| the same interception returned for a touchdown | −8.11 |
+
+The first two are the ceiling of what a team does on purpose, they happen a
+few times a game, and a metric that flinches at them is measuring something
+else. The clip sits right on them — within a tenth of a point — so what it
+actually truncates is the third row: the compound play, where the ball was
+turned over *and* returned for a score, which is two events the box score
+charges to one snap.
+
+That's also why the first guess was wrong. A clip at 4 is the 97.5th
+percentile, and it bites about one snap in forty — which means it truncates
+ordinary deep interceptions and ordinary long touchdowns, and reports a team
+that threw one as a team that threw something smaller.
+
+Why bound at all, given the tail is real football: a game is only ~130 snaps.
+At its full −11 a red-zone pick-six moves a team's average by 0.08, which is
+most of the gap between a good offense and a bad one, off one play. Bounded it
+moves it by 0.04. The play still dominates the game; it just doesn't get to be
+three plays.
+
+### The weighting
+
+A team up 28 in the fourth runs into the line and kneels; a team down 28
+throws deep on every down against a defense that has stopped covering. Both
+post EPA per play that measures the score rather than the team.
+
+Each play is weighted by how much its game was still in doubt:
+
+```
+weight = 4 * p * (1 - p)
+```
+
+on the win probability at that snap — which is the variance of the game's
+outcome at that moment, scaled to peak at 1. A coin-flip game weighs 1.00, a
+three-score game 0.36, a decided one 0.04.
+
+That's chosen over the usual garbage-time *filter* — drop everything outside
+0.05 to 0.95 — because a filter puts a cliff in the middle of the fourth
+quarter, and two teams whose games hovered on either side of it get
+incomparable numbers off comparable football. This fades instead, and it fades
+on a quantity that already means something rather than on a curve someone
+shaped. It also disposes of the kneel-downs and the clock-killing runs without
+naming them: they happen above p = 0.97, where they weigh about nothing.
+There's no list of play types in this module and there doesn't need to be.
+
+`home_weight` and `away_weight` report what survived, which is the honest part
+of the number in the way `GameControl.seconds` is:
+
+Over every season of both leagues from 2014 (`make bounds` again):
+
+| | effective play share | median shift in a team's game number | p95 |
+| --- | --- | --- | --- |
+| NFL | 0.64 – 0.68 | 0.05 – 0.07 | 0.22 – 0.28 |
+| NCAAFB | 0.53 – 0.55 | 0.06 – 0.07 | 0.31 – 0.37 |
+
+Two readings. A season of NFL snaps is worth about two thirds of its count
+once the decided stretches are down-weighted, and a season of college snaps
+barely more than half — college has more blowouts, and the metric says so.
+And the shift is not ceremony: the bound and the weighting together move a
+team's game number by about 0.06 typically and 0.3 at the tail, against a
+spread between good and bad offenses of a few tenths.
+
+`weight_power` is the exponent, and there's no measurement that settles it the
+way the clip is settled — it's a statement about what you want the number to
+mean. 1.0 is the unexaggerated choice: the weight *is* the outcome's variance,
+with nothing done to it. 0.0 turns the weighting off.
+
+### Adding games up
+
+**A weighted sum, not a mean of means.** A game contributes
+`home * home_weight` to the numerator and `home_weight` to the denominator:
+
+```python
+numerator = sum(epa.home * epa.home_weight for epa in games)
+denominator = sum(epa.home_weight for epa in games)
+season = numerator / denominator
+```
+
+Averaging the per-game numbers instead lets a 12-snap weather-shortened game
+count as much as a full one, and lets a blowout — whose weight is almost all
+gone — count as much as a game that was live throughout. That's what the
+weights are on the tuple for.
+
+### Is it any good?
+
+`make validate` refits both models on 2014–2022 and measures them on
+2023–2025, which neither fit has seen. The full report with the charts is
+[docs/epa-validation.md](docs/epa-validation.md); the headline:
+
+| out of sample | NFL | NCAAFB |
+| --- | --- | --- |
+| held-out snaps | 109,525 | 715,182 |
+| log loss (base rates 1.53 / 1.49) | **1.318** | **1.279** |
+| skill over base rates | 13.7% | 14.1% |
+| worst calibration bin, in points | 0.33 | 0.35 |
+| mean calibration gap | 0.097 | 0.096 |
+
+And the metric built on it, over 824 team-seasons whose games are dealt at
+random into two sets 1,500 times over:
+
+| | reliability | predicts scoring | predicts live scoring |
+| --- | --- | --- | --- |
+| EPA/play (NFL) | **0.589** | **0.549** | **0.471** |
+| points/play (NFL) | 0.551 | 0.539 | 0.446 |
+| EPA/play (NCAAFB) | **0.511** | **0.470** | **0.249** |
+| points/play (NCAAFB) | 0.468 | 0.466 | 0.242 |
+
+EPA beats the box score in six of six cells. Two caveats the report is
+explicit about: none of those margins clears significance on its own, and the
+same design **cannot** adjudicate `weight_power`, because down-weighting
+discards blowouts and blowouts are the mismatch games — so the weighted
+metric's two sets are drawn from a different pool than the unweighted one.
+`DEFAULT_CLIP` is measured; `DEFAULT_WEIGHT_POWER` is a choice, and the report
+gives its price rather than its verdict.
+
+### Three things this one isn't
+
+- **A rating.** A game is ~130 snaps, and 130 snaps is a noisy estimate of
+  anything. The `home_weight` on the tuple is there so a reader can see how
+  much of a game the number covers.
+- **Symmetric with `GameControl`.** `home` and `away` don't sum to anything.
+  They're two separate averages over two disjoint sets of snaps, in points,
+  and both are positive in a game where everybody moved the ball. `None` means
+  there was nothing to average, not 0.0 — which would read as a team that
+  played exactly to expectation.
+- **Related to the luck adjustment.** `lucky_wp` and `epa_per_play` both have
+  opinions about a fumble, and they are different opinions about different
+  things: one prices the bounce in win probability and splits it, the other
+  prices the change of possession in points and charges all of it. Nothing in
+  `lucky_ones.epa` reads `lucky_ones.luck`, and neither fit is retrained by
+  any of it.
+
 ## Development
 
 Open the repo in the devcontainer (`.devcontainer/`) — python 3.14, uv, the
@@ -628,8 +1007,13 @@ make test     # pytest
 make lint     # ruff (fix + format) and ty
 make check    # the same checks, reporting instead of fixing -- what CI runs
 make wheel    # build, and list the fits that made it into the wheel
-make train    # fit a model, rewrite lucky_ones/releases/{league}.json
+make train    # fit win probability, rewrite releases/{league}.json
+make train-ep # fit expected points, rewrite releases/{league}-ep.json
 make curve    # one game's curve and its game control, as JSON
+make epa      # one game's EPA per play, and every snap behind it
+make rates    # the fumble and pass rates behind DEFAULT_RETAINED
+make bounds   # the EPA distribution behind DEFAULT_CLIP
+make validate # are the models any good? -- docs/epa-validation.md
 make plays    # aws s3 sync the processed play-by-play down for offline fits
 ```
 
