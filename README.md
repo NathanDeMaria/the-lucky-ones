@@ -988,11 +988,33 @@ sample* (Kish's `n_eff`), so only the choice of snaps differs:
 
 **The whole penalty is the sample.** The snaps the weighting picks are, if
 anything, marginally better than a random draw of the same size — positive in
-six of six cells, significant in none. So the weighting is a precision cost
-with no accuracy penalty: you pay a fifth of the NFL's effective sample and
-nearly a third of college's, and get a number that describes competitive
-football by construction. `DEFAULT_CLIP` is measured;
-`DEFAULT_WEIGHT_POWER` is a preference with a known bill.
+six of six cells, significant in none. So the weighting costs precision and
+nothing else.
+
+**And what it buys.** Everything above is predictive; the complaint the
+weighting exists for is descriptive — *that 0.31 wasn't real, it was a rout*.
+So take the unweighted mean over only the live snaps (0.2–0.8 WP) as what the
+team did while it mattered, and see how close each whole-game number lands:
+
+| | gap to the live-only mean | closed | sample kept |
+| --- | --- | --- | --- |
+| power 0 — no weighting | 0.113 | — | 100% |
+| **power 1 — shipped** | **0.065** | **43%** | **86%** |
+| power 2 — best | 0.053 | 53% | 76% |
+| power 5 | 0.081 | 28% | 60% |
+
+Garbage time is worth about **0.11** to a team's game number (0.26 at the 90th
+percentile), against a good-to-bad offense spread of a few tenths — so the
+problem is real. The shipped power removes 43% of it. NFL and college trace
+almost the same curve.
+
+The curve **bottoms at power 2 and climbs again**, which is what makes this a
+test rather than arithmetic: `4p(1−p)` fades inside the live window too, so a
+high enough power averages the coin-flip snaps rather than the live game. So
+`DEFAULT_CLIP` is measured, and `DEFAULT_WEIGHT_POWER = 1.0` is the
+conservative end of a flat stretch — with power 2 a defensible alternative at
+roughly one more point of sample per point of gap closed, and anything past 3
+strictly worse.
 
 ### Three things this one isn't
 
