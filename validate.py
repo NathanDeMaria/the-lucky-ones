@@ -1175,7 +1175,7 @@ def _weighting_chart(report: dict) -> str:
         ylabel="weight the play carries",
         xformat="{:g}",
     )
-    for index, power in enumerate((0.25, 0.5, 1.0, 2.0)):
+    for index, power in enumerate((0.5, 1.0, 2.0, 3.0)):
         curve = [(p / 100, competitiveness(p / 100, power)) for p in range(0, 101)]
         axes.line(curve, color=charts.SERIES[index], width=2.0)
     axes.line([(0, 1.0), (1, 1.0)], color=charts.MUTED, width=1.4, dash="5 4")
@@ -1184,15 +1184,20 @@ def _weighting_chart(report: dict) -> str:
     )
     axes.legend(
         [
-            (f"power {power:g}" + (" (shipped)" if power == 1.0 else ""), color)
-            for power, color in zip((0.25, 0.5, 1.0, 2.0), charts.SERIES)
+            (
+                f"power {power:g}"
+                + (" (shipped)" if power == report["weight_power"] else ""),
+                color,
+            )
+            for power, color in zip((0.5, 1.0, 2.0, 3.0), charts.SERIES)
         ],
         axes.right - 118,
         axes.top + 16,
     )
     share = report["distribution"]["effective_play_share"]
     return axes.render(
-        "The weighting: 4p(1−p), the variance of the game's outcome",
+        f"The weighting: 4p(1−p) raised to the power, shipped at "
+        f"{report['weight_power']:g}",
         f"{report['league'].upper()} keeps {share:.0%} of its snaps' weight at "
         f"the shipped power of {report['weight_power']:g}",
     )
