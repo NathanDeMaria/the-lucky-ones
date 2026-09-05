@@ -1,0 +1,1408 @@
+{
+  "league": "ncaafb",
+  "fit_seasons": [
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022
+  ],
+  "test_seasons": [
+    2023,
+    2024,
+    2025
+  ],
+  "clip": 5.0,
+  "weight_power": 1.0,
+  "n_fit_games": 12205,
+  "n_test_games": 4735,
+  "skill": {
+    "n_snaps": 715182,
+    "log_loss": 1.279,
+    "log_loss_base_rates": 1.4898,
+    "log_loss_uniform": 1.9459,
+    "log_loss_skill": 0.1415,
+    "mean_absolute_error": 4.213,
+    "mean_absolute_error_base_rates": 4.704,
+    "mean_absolute_error_skill": 0.1045,
+    "variance_explained": 0.1124,
+    "mean_predicted": 1.6374,
+    "mean_actual": 1.6865,
+    "bias": -0.0491
+  },
+  "calibration": {
+    "bins": [
+      {
+        "predicted": -2.0729,
+        "actual": -1.8453,
+        "n": 35760
+      },
+      {
+        "predicted": -0.8522,
+        "actual": -0.8308,
+        "n": 35760
+      },
+      {
+        "predicted": -0.3158,
+        "actual": -0.2471,
+        "n": 35759
+      },
+      {
+        "predicted": 0.0283,
+        "actual": 0.0401,
+        "n": 35759
+      },
+      {
+        "predicted": 0.2891,
+        "actual": 0.3305,
+        "n": 35759
+      },
+      {
+        "predicted": 0.5045,
+        "actual": 0.6527,
+        "n": 35759
+      },
+      {
+        "predicted": 0.7258,
+        "actual": 0.8395,
+        "n": 35759
+      },
+      {
+        "predicted": 0.9058,
+        "actual": 0.5572,
+        "n": 35759
+      },
+      {
+        "predicted": 1.0875,
+        "actual": 1.2075,
+        "n": 35759
+      },
+      {
+        "predicted": 1.3559,
+        "actual": 1.4867,
+        "n": 35759
+      },
+      {
+        "predicted": 1.6219,
+        "actual": 1.6586,
+        "n": 35759
+      },
+      {
+        "predicted": 1.8832,
+        "actual": 1.8715,
+        "n": 35759
+      },
+      {
+        "predicted": 2.1766,
+        "actual": 2.1936,
+        "n": 35759
+      },
+      {
+        "predicted": 2.4924,
+        "actual": 2.4862,
+        "n": 35759
+      },
+      {
+        "predicted": 2.833,
+        "actual": 2.7812,
+        "n": 35759
+      },
+      {
+        "predicted": 3.1926,
+        "actual": 3.1747,
+        "n": 35759
+      },
+      {
+        "predicted": 3.5589,
+        "actual": 3.5306,
+        "n": 35759
+      },
+      {
+        "predicted": 3.9314,
+        "actual": 4.0178,
+        "n": 35759
+      },
+      {
+        "predicted": 4.3359,
+        "actual": 4.5188,
+        "n": 35759
+      },
+      {
+        "predicted": 5.0666,
+        "actual": 5.306,
+        "n": 35759
+      }
+    ],
+    "worst_gap": 0.3486,
+    "mean_absolute_gap": 0.0955
+  },
+  "landmarks": [
+    {
+      "situation": "1st and 10, own 1",
+      "expected_points": -0.314
+    },
+    {
+      "situation": "1st and 10, own 25",
+      "expected_points": 0.856
+    },
+    {
+      "situation": "1st and 10, midfield",
+      "expected_points": 2.409
+    },
+    {
+      "situation": "1st and 10, opponent 25",
+      "expected_points": 3.874
+    },
+    {
+      "situation": "1st and goal, the 2",
+      "expected_points": 5.454
+    },
+    {
+      "situation": "3rd and 15, own 5",
+      "expected_points": -2.4
+    },
+    {
+      "situation": "4th and 1, midfield",
+      "expected_points": -0.161
+    }
+  ],
+  "surface": {
+    "yardlines": [
+      5,
+      10,
+      15,
+      20,
+      25,
+      30,
+      35,
+      40,
+      45,
+      50,
+      55,
+      60,
+      65,
+      70,
+      75,
+      80,
+      85,
+      90,
+      95
+    ],
+    "fitted": {
+      "1": [
+        -0.0532,
+        0.2705,
+        0.3998,
+        0.5269,
+        0.8564,
+        1.1819,
+        1.5015,
+        1.8136,
+        2.1167,
+        2.4094,
+        2.7739,
+        3.1049,
+        3.3994,
+        3.6561,
+        3.8744,
+        4.0549,
+        4.4391,
+        3.954,
+        4.5784
+      ],
+      "2": [
+        -1.0146,
+        -0.7039,
+        -0.5749,
+        -0.4449,
+        -0.1181,
+        0.21,
+        0.5375,
+        0.8624,
+        1.1828,
+        1.4971,
+        1.9127,
+        2.2998,
+        2.6537,
+        2.9704,
+        3.2476,
+        3.4842,
+        3.9443,
+        3.4357,
+        4.0826
+      ],
+      "3": [
+        -2.1286,
+        -1.8528,
+        -1.7318,
+        -1.6063,
+        -1.304,
+        -0.9943,
+        -0.6789,
+        -0.3595,
+        -0.0381,
+        0.2836,
+        0.7443,
+        1.1889,
+        1.6097,
+        1.9997,
+        2.3532,
+        2.6663,
+        3.2212,
+        2.7083,
+        3.3469
+      ],
+      "4": [
+        -3.4979,
+        -3.2967,
+        -3.2002,
+        -3.0943,
+        -2.8587,
+        -2.6107,
+        -2.3512,
+        -2.081,
+        -1.8011,
+        -1.5128,
+        -1.0377,
+        -0.5522,
+        -0.0663,
+        0.4092,
+        0.864,
+        1.2884,
+        1.9568,
+        1.5171,
+        2.0304
+      ]
+    },
+    "observed": {
+      "1": [
+        {
+          "yardline": 5,
+          "actual": 0.0019,
+          "n": 3782
+        },
+        {
+          "yardline": 10,
+          "actual": 0.1347,
+          "n": 6466
+        },
+        {
+          "yardline": 15,
+          "actual": 0.3383,
+          "n": 9062
+        },
+        {
+          "yardline": 20,
+          "actual": 0.6277,
+          "n": 16784
+        },
+        {
+          "yardline": 25,
+          "actual": 0.484,
+          "n": 41071
+        },
+        {
+          "yardline": 30,
+          "actual": 1.3515,
+          "n": 16581
+        },
+        {
+          "yardline": 35,
+          "actual": 1.422,
+          "n": 23438
+        },
+        {
+          "yardline": 40,
+          "actual": 1.773,
+          "n": 20556
+        },
+        {
+          "yardline": 45,
+          "actual": 2.1531,
+          "n": 18072
+        },
+        {
+          "yardline": 50,
+          "actual": 2.3838,
+          "n": 17679
+        },
+        {
+          "yardline": 55,
+          "actual": 2.7445,
+          "n": 16216
+        },
+        {
+          "yardline": 60,
+          "actual": 3.0103,
+          "n": 14825
+        },
+        {
+          "yardline": 65,
+          "actual": 3.3827,
+          "n": 13852
+        },
+        {
+          "yardline": 70,
+          "actual": 3.6764,
+          "n": 13033
+        },
+        {
+          "yardline": 75,
+          "actual": 4.0445,
+          "n": 11725
+        },
+        {
+          "yardline": 80,
+          "actual": 4.3209,
+          "n": 11068
+        },
+        {
+          "yardline": 85,
+          "actual": 4.7047,
+          "n": 9904
+        },
+        {
+          "yardline": 90,
+          "actual": 4.9562,
+          "n": 9374
+        },
+        {
+          "yardline": 95,
+          "actual": 5.1819,
+          "n": 8986
+        }
+      ],
+      "2": [
+        {
+          "yardline": 5,
+          "actual": -0.8358,
+          "n": 2339
+        },
+        {
+          "yardline": 10,
+          "actual": -0.4849,
+          "n": 4166
+        },
+        {
+          "yardline": 15,
+          "actual": -0.1916,
+          "n": 6493
+        },
+        {
+          "yardline": 20,
+          "actual": -0.0475,
+          "n": 10586
+        },
+        {
+          "yardline": 25,
+          "actual": 0.0186,
+          "n": 20668
+        },
+        {
+          "yardline": 30,
+          "actual": 0.6172,
+          "n": 20053
+        },
+        {
+          "yardline": 35,
+          "actual": 1.0461,
+          "n": 16489
+        },
+        {
+          "yardline": 40,
+          "actual": 1.3924,
+          "n": 16164
+        },
+        {
+          "yardline": 45,
+          "actual": 1.6827,
+          "n": 14686
+        },
+        {
+          "yardline": 50,
+          "actual": 1.9627,
+          "n": 13605
+        },
+        {
+          "yardline": 55,
+          "actual": 2.2205,
+          "n": 12767
+        },
+        {
+          "yardline": 60,
+          "actual": 2.5395,
+          "n": 11461
+        },
+        {
+          "yardline": 65,
+          "actual": 2.929,
+          "n": 10472
+        },
+        {
+          "yardline": 70,
+          "actual": 3.253,
+          "n": 10019
+        },
+        {
+          "yardline": 75,
+          "actual": 3.5958,
+          "n": 9088
+        },
+        {
+          "yardline": 80,
+          "actual": 3.874,
+          "n": 8516
+        },
+        {
+          "yardline": 85,
+          "actual": 4.3132,
+          "n": 7889
+        },
+        {
+          "yardline": 90,
+          "actual": 4.5772,
+          "n": 7302
+        },
+        {
+          "yardline": 95,
+          "actual": 5.0727,
+          "n": 7046
+        }
+      ],
+      "3": [
+        {
+          "yardline": 5,
+          "actual": -1.7774,
+          "n": 1348
+        },
+        {
+          "yardline": 10,
+          "actual": -1.2276,
+          "n": 2575
+        },
+        {
+          "yardline": 15,
+          "actual": -1.1717,
+          "n": 4164
+        },
+        {
+          "yardline": 20,
+          "actual": -0.9164,
+          "n": 6367
+        },
+        {
+          "yardline": 25,
+          "actual": -0.7115,
+          "n": 11107
+        },
+        {
+          "yardline": 30,
+          "actual": -0.2746,
+          "n": 13444
+        },
+        {
+          "yardline": 35,
+          "actual": 0.2586,
+          "n": 11255
+        },
+        {
+          "yardline": 40,
+          "actual": 0.5474,
+          "n": 9992
+        },
+        {
+          "yardline": 45,
+          "actual": 0.8841,
+          "n": 9708
+        },
+        {
+          "yardline": 50,
+          "actual": 1.185,
+          "n": 8791
+        },
+        {
+          "yardline": 55,
+          "actual": 1.374,
+          "n": 8311
+        },
+        {
+          "yardline": 60,
+          "actual": 1.8717,
+          "n": 7329
+        },
+        {
+          "yardline": 65,
+          "actual": 2.2169,
+          "n": 6915
+        },
+        {
+          "yardline": 70,
+          "actual": 2.6001,
+          "n": 6531
+        },
+        {
+          "yardline": 75,
+          "actual": 2.8549,
+          "n": 5984
+        },
+        {
+          "yardline": 80,
+          "actual": 3.1861,
+          "n": 5669
+        },
+        {
+          "yardline": 85,
+          "actual": 3.5367,
+          "n": 5292
+        },
+        {
+          "yardline": 90,
+          "actual": 3.9323,
+          "n": 4918
+        },
+        {
+          "yardline": 95,
+          "actual": 4.2883,
+          "n": 4728
+        }
+      ],
+      "4": [
+        {
+          "yardline": 5,
+          "actual": -3.1044,
+          "n": 872
+        },
+        {
+          "yardline": 10,
+          "actual": -2.5069,
+          "n": 1677
+        },
+        {
+          "yardline": 15,
+          "actual": -2.3302,
+          "n": 2641
+        },
+        {
+          "yardline": 20,
+          "actual": -2.1424,
+          "n": 3840
+        },
+        {
+          "yardline": 25,
+          "actual": -1.9702,
+          "n": 6004
+        },
+        {
+          "yardline": 30,
+          "actual": -1.7175,
+          "n": 7312
+        },
+        {
+          "yardline": 35,
+          "actual": -0.98,
+          "n": 6246
+        },
+        {
+          "yardline": 40,
+          "actual": -0.822,
+          "n": 5375
+        },
+        {
+          "yardline": 45,
+          "actual": -0.5045,
+          "n": 5316
+        },
+        {
+          "yardline": 50,
+          "actual": -0.1512,
+          "n": 4722
+        },
+        {
+          "yardline": 55,
+          "actual": 0.0113,
+          "n": 4686
+        },
+        {
+          "yardline": 60,
+          "actual": 0.3413,
+          "n": 4120
+        },
+        {
+          "yardline": 65,
+          "actual": 0.9524,
+          "n": 3740
+        },
+        {
+          "yardline": 70,
+          "actual": 1.281,
+          "n": 3651
+        },
+        {
+          "yardline": 75,
+          "actual": 1.5972,
+          "n": 3399
+        },
+        {
+          "yardline": 80,
+          "actual": 2.0347,
+          "n": 3198
+        },
+        {
+          "yardline": 85,
+          "actual": 2.2532,
+          "n": 2974
+        },
+        {
+          "yardline": 90,
+          "actual": 2.5093,
+          "n": 2857
+        },
+        {
+          "yardline": 95,
+          "actual": 2.9199,
+          "n": 2623
+        }
+      ]
+    }
+  },
+  "distribution": {
+    "n_plays": 715182,
+    "histogram": {
+      "edges": [
+        -10.0,
+        -9.75,
+        -9.5,
+        -9.25,
+        -9.0,
+        -8.75,
+        -8.5,
+        -8.25,
+        -8.0,
+        -7.75,
+        -7.5,
+        -7.25,
+        -7.0,
+        -6.75,
+        -6.5,
+        -6.25,
+        -6.0,
+        -5.75,
+        -5.5,
+        -5.25,
+        -5.0,
+        -4.75,
+        -4.5,
+        -4.25,
+        -4.0,
+        -3.75,
+        -3.5,
+        -3.25,
+        -3.0,
+        -2.75,
+        -2.5,
+        -2.25,
+        -2.0,
+        -1.75,
+        -1.5,
+        -1.25,
+        -1.0,
+        -0.75,
+        -0.5,
+        -0.25,
+        0.0,
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25,
+        3.5,
+        3.75,
+        4.0,
+        4.25,
+        4.5,
+        4.75,
+        5.0,
+        5.25,
+        5.5,
+        5.75,
+        6.0,
+        6.25,
+        6.5,
+        6.75,
+        7.0,
+        7.25,
+        7.5,
+        7.75,
+        8.0,
+        8.25,
+        8.5,
+        8.75,
+        9.0,
+        9.25,
+        9.5,
+        9.75,
+        10.0
+      ],
+      "counts": [
+        33,
+        28,
+        45,
+        36,
+        54,
+        73,
+        62,
+        78,
+        119,
+        112,
+        125,
+        127,
+        169,
+        194,
+        200,
+        308,
+        382,
+        483,
+        623,
+        728,
+        863,
+        949,
+        1008,
+        1132,
+        1302,
+        1632,
+        1935,
+        2339,
+        2920,
+        3601,
+        4394,
+        5346,
+        9662,
+        18185,
+        20944,
+        42036,
+        65575,
+        77553,
+        81100,
+        57665,
+        49240,
+        38501,
+        40273,
+        38516,
+        29457,
+        21179,
+        17346,
+        14232,
+        11781,
+        9884,
+        8657,
+        7196,
+        5469,
+        4062,
+        3105,
+        2462,
+        1789,
+        1362,
+        1139,
+        854,
+        726,
+        677,
+        526,
+        451,
+        525,
+        374,
+        282,
+        246,
+        182,
+        119,
+        81,
+        39,
+        43,
+        24,
+        12,
+        9,
+        4,
+        3,
+        1,
+        3
+      ]
+    },
+    "quantiles": {
+      "p0.1": -7.858,
+      "p1": -4.222,
+      "p5": -1.861,
+      "p25": -0.785,
+      "p50": -0.207,
+      "p75": 0.771,
+      "p95": 2.632,
+      "p99": 4.342,
+      "p99.9": 6.798
+    },
+    "abs_quantiles": {
+      "p90": 2.334,
+      "p95": 3.126,
+      "p97.5": 3.981,
+      "p99": 5.237,
+      "p99.5": 6.096,
+      "p99.9": 8.047
+    },
+    "beyond_clip": 0.0119,
+    "effective_play_share": 0.5456
+  },
+  "split_half": {
+    "team_seasons": 733,
+    "min_games": 10,
+    "min_live_share": 0.5,
+    "draws": 1500,
+    "metrics": {
+      "shipped": {
+        "reliability": {
+          "r": 0.5115,
+          "low": 0.4481,
+          "high": 0.5723
+        },
+        "all_scoring": {
+          "r": 0.4696,
+          "low": 0.411,
+          "high": 0.525
+        },
+        "live_scoring": {
+          "r": 0.2486,
+          "low": 0.1826,
+          "high": 0.3105
+        }
+      },
+      "unadjusted": {
+        "reliability": {
+          "r": 0.5671,
+          "low": 0.5068,
+          "high": 0.6251
+        },
+        "all_scoring": {
+          "r": 0.489,
+          "low": 0.4294,
+          "high": 0.5477
+        },
+        "live_scoring": {
+          "r": 0.2613,
+          "low": 0.2009,
+          "high": 0.3212
+        }
+      },
+      "points/play": {
+        "reliability": {
+          "r": 0.4678,
+          "low": 0.3976,
+          "high": 0.538
+        },
+        "all_scoring": {
+          "r": 0.4662,
+          "low": 0.3962,
+          "high": 0.5363
+        },
+        "live_scoring": {
+          "r": 0.2422,
+          "low": 0.1693,
+          "high": 0.3076
+        }
+      },
+      "clip 1": {
+        "reliability": {
+          "r": 0.6171,
+          "low": 0.5603,
+          "high": 0.6688
+        },
+        "all_scoring": {
+          "r": 0.4907,
+          "low": 0.4346,
+          "high": 0.5457
+        },
+        "live_scoring": {
+          "r": 0.251,
+          "low": 0.1894,
+          "high": 0.3087
+        }
+      },
+      "clip 2": {
+        "reliability": {
+          "r": 0.6126,
+          "low": 0.5552,
+          "high": 0.6641
+        },
+        "all_scoring": {
+          "r": 0.4971,
+          "low": 0.4399,
+          "high": 0.5529
+        },
+        "live_scoring": {
+          "r": 0.2613,
+          "low": 0.2011,
+          "high": 0.321
+        }
+      },
+      "clip 3": {
+        "reliability": {
+          "r": 0.5987,
+          "low": 0.5419,
+          "high": 0.6514
+        },
+        "all_scoring": {
+          "r": 0.4969,
+          "low": 0.4383,
+          "high": 0.5539
+        },
+        "live_scoring": {
+          "r": 0.2637,
+          "low": 0.2029,
+          "high": 0.3232
+        }
+      },
+      "clip 4": {
+        "reliability": {
+          "r": 0.5885,
+          "low": 0.5321,
+          "high": 0.644
+        },
+        "all_scoring": {
+          "r": 0.4957,
+          "low": 0.437,
+          "high": 0.5534
+        },
+        "live_scoring": {
+          "r": 0.2642,
+          "low": 0.2032,
+          "high": 0.3241
+        }
+      },
+      "clip 5": {
+        "reliability": {
+          "r": 0.5808,
+          "low": 0.5216,
+          "high": 0.6366
+        },
+        "all_scoring": {
+          "r": 0.4938,
+          "low": 0.4345,
+          "high": 0.5516
+        },
+        "live_scoring": {
+          "r": 0.2631,
+          "low": 0.2023,
+          "high": 0.3225
+        }
+      },
+      "clip 7": {
+        "reliability": {
+          "r": 0.5729,
+          "low": 0.5135,
+          "high": 0.63
+        },
+        "all_scoring": {
+          "r": 0.4913,
+          "low": 0.4319,
+          "high": 0.5493
+        },
+        "live_scoring": {
+          "r": 0.2621,
+          "low": 0.201,
+          "high": 0.3219
+        }
+      },
+      "clip inf": {
+        "reliability": {
+          "r": 0.5671,
+          "low": 0.5068,
+          "high": 0.6251
+        },
+        "all_scoring": {
+          "r": 0.489,
+          "low": 0.4294,
+          "high": 0.5477
+        },
+        "live_scoring": {
+          "r": 0.2613,
+          "low": 0.2009,
+          "high": 0.3212
+        }
+      },
+      "power 0": {
+        "reliability": {
+          "r": 0.5808,
+          "low": 0.5216,
+          "high": 0.6366
+        },
+        "all_scoring": {
+          "r": 0.4938,
+          "low": 0.4345,
+          "high": 0.5516
+        },
+        "live_scoring": {
+          "r": 0.2631,
+          "low": 0.2023,
+          "high": 0.3225
+        }
+      },
+      "power 0.25": {
+        "reliability": {
+          "r": 0.5699,
+          "low": 0.5118,
+          "high": 0.6268
+        },
+        "all_scoring": {
+          "r": 0.4945,
+          "low": 0.4358,
+          "high": 0.551
+        },
+        "live_scoring": {
+          "r": 0.2618,
+          "low": 0.1989,
+          "high": 0.3231
+        }
+      },
+      "power 0.5": {
+        "reliability": {
+          "r": 0.5482,
+          "low": 0.487,
+          "high": 0.6066
+        },
+        "all_scoring": {
+          "r": 0.4861,
+          "low": 0.427,
+          "high": 0.5418
+        },
+        "live_scoring": {
+          "r": 0.2572,
+          "low": 0.1931,
+          "high": 0.3195
+        }
+      },
+      "power 1": {
+        "reliability": {
+          "r": 0.5115,
+          "low": 0.4481,
+          "high": 0.5723
+        },
+        "all_scoring": {
+          "r": 0.4696,
+          "low": 0.411,
+          "high": 0.525
+        },
+        "live_scoring": {
+          "r": 0.2486,
+          "low": 0.1826,
+          "high": 0.3105
+        }
+      },
+      "power 2": {
+        "reliability": {
+          "r": 0.464,
+          "low": 0.3945,
+          "high": 0.529
+        },
+        "all_scoring": {
+          "r": 0.4461,
+          "low": 0.387,
+          "high": 0.5015
+        },
+        "live_scoring": {
+          "r": 0.2365,
+          "low": 0.171,
+          "high": 0.2977
+        }
+      }
+    },
+    "epa_vs_points": {
+      "reliability": {
+        "difference": 0.0436,
+        "low": -0.0298,
+        "high": 0.1089,
+        "p_better": 0.902
+      },
+      "all_scoring": {
+        "difference": 0.0033,
+        "low": -0.0338,
+        "high": 0.039,
+        "p_better": 0.575
+      },
+      "live_scoring": {
+        "difference": 0.0063,
+        "low": -0.0338,
+        "high": 0.046,
+        "p_better": 0.611
+      }
+    },
+    "unadjusted_vs_points": {
+      "reliability": {
+        "difference": 0.0993,
+        "low": 0.0449,
+        "high": 0.1547,
+        "p_better": 1.0
+      },
+      "all_scoring": {
+        "difference": 0.0228,
+        "low": -0.0073,
+        "high": 0.0534,
+        "p_better": 0.933
+      },
+      "live_scoring": {
+        "difference": 0.0191,
+        "low": -0.0135,
+        "high": 0.0498,
+        "p_better": 0.872
+      }
+    },
+    "against_unadjusted": {
+      "clip 1": {
+        "reliability": {
+          "difference": 0.05,
+          "low": 0.0125,
+          "high": 0.0885,
+          "p_better": 0.996
+        },
+        "all_scoring": {
+          "difference": 0.0016,
+          "low": -0.018,
+          "high": 0.0228,
+          "p_better": 0.559
+        },
+        "live_scoring": {
+          "difference": -0.0103,
+          "low": -0.0323,
+          "high": 0.0124,
+          "p_better": 0.196
+        }
+      },
+      "clip 2": {
+        "reliability": {
+          "difference": 0.0455,
+          "low": 0.0191,
+          "high": 0.0724,
+          "p_better": 0.999
+        },
+        "all_scoring": {
+          "difference": 0.0081,
+          "low": -0.006,
+          "high": 0.0226,
+          "p_better": 0.868
+        },
+        "live_scoring": {
+          "difference": 0.0,
+          "low": -0.015,
+          "high": 0.0156,
+          "p_better": 0.485
+        }
+      },
+      "clip 3": {
+        "reliability": {
+          "difference": 0.0316,
+          "low": 0.0123,
+          "high": 0.0501,
+          "p_better": 0.999
+        },
+        "all_scoring": {
+          "difference": 0.0079,
+          "low": -0.0022,
+          "high": 0.0182,
+          "p_better": 0.941
+        },
+        "live_scoring": {
+          "difference": 0.0024,
+          "low": -0.0081,
+          "high": 0.0136,
+          "p_better": 0.665
+        }
+      },
+      "clip 4": {
+        "reliability": {
+          "difference": 0.0214,
+          "low": 0.0085,
+          "high": 0.0348,
+          "p_better": 1.0
+        },
+        "all_scoring": {
+          "difference": 0.0067,
+          "low": -0.0005,
+          "high": 0.014,
+          "p_better": 0.965
+        },
+        "live_scoring": {
+          "difference": 0.0029,
+          "low": -0.0049,
+          "high": 0.0111,
+          "p_better": 0.775
+        }
+      },
+      "clip 5": {
+        "reliability": {
+          "difference": 0.0137,
+          "low": 0.0046,
+          "high": 0.0232,
+          "p_better": 0.998
+        },
+        "all_scoring": {
+          "difference": 0.0048,
+          "low": -0.0002,
+          "high": 0.0102,
+          "p_better": 0.968
+        },
+        "live_scoring": {
+          "difference": 0.0018,
+          "low": -0.0035,
+          "high": 0.0075,
+          "p_better": 0.748
+        }
+      },
+      "clip 7": {
+        "reliability": {
+          "difference": 0.0057,
+          "low": 0.001,
+          "high": 0.0111,
+          "p_better": 0.989
+        },
+        "all_scoring": {
+          "difference": 0.0023,
+          "low": -0.0003,
+          "high": 0.0053,
+          "p_better": 0.955
+        },
+        "live_scoring": {
+          "difference": 0.0008,
+          "low": -0.002,
+          "high": 0.0039,
+          "p_better": 0.702
+        }
+      },
+      "clip inf": {
+        "reliability": {
+          "difference": 0.0,
+          "low": 0.0,
+          "high": 0.0,
+          "p_better": 0.0
+        },
+        "all_scoring": {
+          "difference": 0.0,
+          "low": 0.0,
+          "high": 0.0,
+          "p_better": 0.0
+        },
+        "live_scoring": {
+          "difference": 0.0,
+          "low": 0.0,
+          "high": 0.0,
+          "p_better": 0.0
+        }
+      },
+      "power 0": {
+        "reliability": {
+          "difference": 0.0137,
+          "low": 0.0046,
+          "high": 0.0232,
+          "p_better": 0.998
+        },
+        "all_scoring": {
+          "difference": 0.0048,
+          "low": -0.0002,
+          "high": 0.0102,
+          "p_better": 0.968
+        },
+        "live_scoring": {
+          "difference": 0.0018,
+          "low": -0.0035,
+          "high": 0.0075,
+          "p_better": 0.748
+        }
+      },
+      "power 0.25": {
+        "reliability": {
+          "difference": 0.0028,
+          "low": -0.019,
+          "high": 0.0243,
+          "p_better": 0.613
+        },
+        "all_scoring": {
+          "difference": 0.0055,
+          "low": -0.0061,
+          "high": 0.0165,
+          "p_better": 0.829
+        },
+        "live_scoring": {
+          "difference": 0.0005,
+          "low": -0.0125,
+          "high": 0.0131,
+          "p_better": 0.537
+        }
+      },
+      "power 0.5": {
+        "reliability": {
+          "difference": -0.0189,
+          "low": -0.0507,
+          "high": 0.0125,
+          "p_better": 0.119
+        },
+        "all_scoring": {
+          "difference": -0.0029,
+          "low": -0.0193,
+          "high": 0.0129,
+          "p_better": 0.373
+        },
+        "live_scoring": {
+          "difference": -0.0041,
+          "low": -0.0232,
+          "high": 0.0148,
+          "p_better": 0.35
+        }
+      },
+      "power 1": {
+        "reliability": {
+          "difference": -0.0557,
+          "low": -0.1017,
+          "high": -0.0141,
+          "p_better": 0.003
+        },
+        "all_scoring": {
+          "difference": -0.0195,
+          "low": -0.0416,
+          "high": 0.0023,
+          "p_better": 0.045
+        },
+        "live_scoring": {
+          "difference": -0.0127,
+          "low": -0.0381,
+          "high": 0.013,
+          "p_better": 0.173
+        }
+      },
+      "power 2": {
+        "reliability": {
+          "difference": -0.1031,
+          "low": -0.1628,
+          "high": -0.0492,
+          "p_better": 0.0
+        },
+        "all_scoring": {
+          "difference": -0.0429,
+          "low": -0.0717,
+          "high": -0.0144,
+          "p_better": 0.0
+        },
+        "live_scoring": {
+          "difference": -0.0248,
+          "low": -0.0567,
+          "high": 0.009,
+          "p_better": 0.081
+        }
+      }
+    }
+  }
+}

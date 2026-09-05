@@ -1,26 +1,39 @@
 """
 The training script, end to end.
 
-Runs the real `train` and `curve` entry points against a synthetic tree, so
-the path a person takes -- `make train`, then `make curve` -- is exercised by
-CI rather than first discovered on a laptop with credentials.
+Runs the real entry points against a synthetic tree, so the path a person
+takes -- `make train` and `make train-ep`, then `make curve` and `make epa` --
+is exercised by CI rather than first discovered on a laptop with credentials.
 """
 
 import json
 
+import numpy as np
 import pytest
 
+from lucky_ones.epa import DEFAULT_CLIP
+from lucky_ones.features import EP_FEATURE_NAMES
 from lucky_ones.luck import DEFENDED_MARKERS
-from lucky_ones.release import WinProbabilityRelease
+from lucky_ones.points import ScoreKind
+from lucky_ones.release import ExpectedPointsRelease, WinProbabilityRelease
 from synthetic import write_tree
 from train import (
     DEFENDED_FAMILIES,
     _parse_seasons,
     _parse_weeks,
+    bounds,
     curve,
+    epa,
     rates,
     train,
+    train_ep,
 )
+
+# The first game `write_tree` writes for 2025, and the team at home in it.
+# Both are deterministic -- that is what a fixture is for -- and both carry
+# the season, since a tree with two of them in it must not collide.
+FIXTURE_GAME = "g2025100"
+FIXTURE_HOME = "t1"
 
 
 @pytest.fixture(name="tree")
@@ -67,11 +80,13 @@ def test_curve_prints_a_series_and_its_control(tmp_path, tree, capsys):
     out = tmp_path / "nfl.json"
     train(league="nfl", seasons="2025", root=str(tree), out=str(out))
 
-    curve("g100", league="nfl", season=2025, week=1, model=str(out), root=str(tree))
+    curve(
+        FIXTURE_GAME, league="nfl", season=2025, week=1, model=str(out), root=str(tree)
+    )
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["game_id"] == "g100"
-    assert payload["home_team_id"] == "home100"
+    assert payload["game_id"] == FIXTURE_GAME
+    assert payload["home_team_id"] == FIXTURE_HOME
     assert len(payload["points"]) > 100
     first = payload["points"][0]
     assert set(first) == {
@@ -100,7 +115,9 @@ def test_curve_prints_the_luck_adjusted_control_too(tmp_path, tree, capsys):
     out = tmp_path / "nfl.json"
     train(league="nfl", seasons="2025", root=str(tree), out=str(out))
 
-    curve("g100", league="nfl", season=2025, week=1, model=str(out), root=str(tree))
+    curve(
+        FIXTURE_GAME, league="nfl", season=2025, week=1, model=str(out), root=str(tree)
+    )
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["lucky_plays"], "the fixture should contain some fumbles"
@@ -125,7 +142,9 @@ def test_curve_prints_what_the_bounces_were_worth(tmp_path, tree, capsys):
     out = tmp_path / "nfl.json"
     train(league="nfl", seasons="2025", root=str(tree), out=str(out))
 
-    curve("g100", league="nfl", season=2025, week=1, model=str(out), root=str(tree))
+    curve(
+        FIXTURE_GAME, league="nfl", season=2025, week=1, model=str(out), root=str(tree)
+    )
 
     payload = json.loads(capsys.readouterr().out)
     breaks = payload["lucky_wp"]
@@ -255,3 +274,142 @@ def test_the_denominator_is_every_contested_pass(tree, capsys):
         "pass_defended_incomplete"
     ] == pytest.approx(1.0)
     assert retained["fumble_lost"] + retained["fumble_kept"] == pytest.approx(1.0)
+
+
+def test_train_ep_writes_a_release_that_loads(tmp_path, tree):
+    out = tmp_path / "nfl-ep.json"
+
+    train_ep(league="nfl", seasons="2025", root=str(tree), out=str(out))
+
+    release = ExpectedPointsRelease.model_validate_json(out.read_text())
+    assert release.league == "nfl"
+    assert release.trained_on.n_snaps > release.trained_on.n_games
+    # `log(k)` is what predicting the base rates gets you, so a fit above it
+    # has learned nothing about the situation.
+    assert 0.0 < release.metrics.log_loss < np.log(len(release.kinds))
+    assert release.metrics.mean_absolute_error > 0.0
+
+    model = release.to_model()
+    assert model.coefficients.shape == (len(release.kinds), len(EP_FEATURE_NAMES))
+    assert model.predict([]).shape == (0,)
+
+
+def test_train_ep_ships_the_classes_it_actually_saw(tmp_path, tree):
+    """
+    The fixture never scores a safety, so its fit has five classes and not
+    seven -- which is exactly why the release stores them rather than
+    assuming the full list.
+    """
+    out = tmp_path / "nfl-ep.json"
+
+    train_ep(league="nfl", seasons="2025", root=str(tree), out=str(out))
+
+    release = ExpectedPointsRelease.model_validate_json(out.read_text())
+    assert set(release.kinds) < set(ScoreKind)
+    assert len(release.coefficients) == len(release.kinds)
+
+
+def test_epa_prints_a_number_per_offense_and_the_plays_behind_it(
+    tmp_path, tree, capsys
+):
+    win = tmp_path / "nfl.json"
+    points = tmp_path / "nfl-ep.json"
+    train(league="nfl", seasons="2025", root=str(tree), out=str(win))
+    train_ep(league="nfl", seasons="2025", root=str(tree), out=str(points))
+
+    epa(
+        FIXTURE_GAME,
+        league="nfl",
+        season=2025,
+        week=1,
+        model=str(win),
+        ep_model=str(points),
+        root=str(tree),
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["game_id"] == FIXTURE_GAME
+    result = payload["epa_per_play"]
+    assert result["home_plays"] + result["away_plays"] == len(payload["plays"])
+    assert result["net"] == pytest.approx(result["home"] - result["away"])
+    # The effective sample is what the average actually covers, and it can
+    # only be smaller than the play count.
+    assert 0 < result["home_weight"] <= result["home_plays"]
+
+    first = payload["plays"][0]
+    assert set(first) == {
+        "play_id",
+        "play_number",
+        "offense_is_home",
+        "expected_points",
+        "epa",
+        "bounded",
+        "win_probability",
+        "weight",
+    }
+    assert abs(first["bounded"]) <= payload["clip"]
+
+
+def test_epa_turns_both_knobs_off_at_the_call_site(tmp_path, tree, capsys):
+    """
+    `--clip inf --weight_power 0` is the plain unweighted mean of raw EPA,
+    which is the number to compare against when you want to see what the two
+    adjustments are doing.
+    """
+    win = tmp_path / "nfl.json"
+    points = tmp_path / "nfl-ep.json"
+    train(league="nfl", seasons="2025", root=str(tree), out=str(win))
+    train_ep(league="nfl", seasons="2025", root=str(tree), out=str(points))
+
+    epa(
+        FIXTURE_GAME,
+        league="nfl",
+        season=2025,
+        week=1,
+        model=str(win),
+        ep_model=str(points),
+        root=str(tree),
+        clip=float("inf"),
+        weight_power=0.0,
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    home = [play for play in payload["plays"] if play["offense_is_home"]]
+    assert all(play["weight"] == 1.0 for play in payload["plays"])
+    assert payload["epa_per_play"]["home"] == pytest.approx(
+        sum(play["epa"] for play in home) / len(home)
+    )
+
+
+def test_bounds_measures_the_tail_behind_the_clip(tmp_path, tree, capsys):
+    """
+    What `rates` is to `DEFAULT_RETAINED`, this is to `DEFAULT_CLIP` -- and it
+    runs through `play_epa`, so the distribution it reports is the one the
+    metric averages rather than a second opinion about it.
+    """
+    win = tmp_path / "nfl.json"
+    points = tmp_path / "nfl-ep.json"
+    train(league="nfl", seasons="2025", root=str(tree), out=str(win))
+    train_ep(league="nfl", seasons="2025", root=str(tree), out=str(points))
+
+    bounds(
+        league="nfl",
+        seasons="2025",
+        root=str(tree),
+        model=str(win),
+        ep_model=str(points),
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["clip_in_use"] == DEFAULT_CLIP
+    season = payload["by_season"]["2025"]
+    assert season["plays"] > 0
+    quantiles = season["quantiles"]
+    assert quantiles["p1"] < quantiles["p50"] < quantiles["p99"]
+    # |EPA| is what a symmetric bound is a quantile of, and it only rises.
+    absolute = season["abs_quantiles"]
+    assert absolute["p90"] <= absolute["p99"] <= absolute["p99.9"]
+    assert 0.0 <= season["beyond_clip"] <= 1.0
+    assert 0.0 < season["effective_play_share"] <= 1.0
+    assert season["game_shift"]["team_games"] > 0
+    assert season["game_shift"]["median_abs"] >= 0.0

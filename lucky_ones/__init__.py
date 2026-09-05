@@ -21,17 +21,29 @@ split evenly rather than credited to whoever they fell to. The second is the
 win probability those bounces handed each team, totalled -- the size of the
 breaks rather than the game without them. See `lucky_ones.luck`.
 
+A fourth number answers a different question again -- not who was ahead, and
+not what the bounces were worth, but who actually played better:
+
+    epa = MODELS.NCAAFB.epa_per_play(game)
+
+Expected points added per snap, bounded so one enormous play can't be the
+whole number and weighted by how much the game was still in doubt when it
+happened. It reads on the scoreboard's scale rather than on a share of
+anything, and it is the one here that doesn't care who won. See
+`lucky_ones.epa`.
+
 `MODELS.NFL` and `MODELS.NCAAFB` are fitted releases that ship inside the
 wheel, so scoring a game needs no bucket, no credentials and no fitting
 stack -- pin this package by rev and you have pinned the model with it. Each
 carries how it scored and what it was fit on (`.metrics`, `.trained_on`), and
 the fit itself is on `.model`. See `lucky_ones.bundled`.
 
-Five names, because a consumer wanting a win probability curve needs exactly
-five: the models, the one function that turns plays into games, and the three
-types on the boundary. Everything else -- the protocols, the free functions
-the methods above wrap, the feature list, the fitting stack -- is a module
-import away, and the table below says which module.
+Six names, because that is what scoring a game needs: the models, the one
+function that turns plays into games, and the four types on the boundary --
+the ones a consumer has to be able to write down the type of. Everything else
+-- the protocols, the free functions the methods above wrap, the feature
+lists, the fitting stack -- is a module import away, and the table below says
+which module.
 
 The pipeline, in the order the modules run:
 
@@ -39,13 +51,15 @@ The pipeline, in the order the modules run:
     arrow     the adapter from endgame's stored parquet to those protocols
     game      plays grouped into games, each with its home side worked out
     state     one snap as the model sees it, pre-snap score and all
-    features  a state as a row of numbers
-    training  games as a labelled matrix, split by game rather than by row
+    features  a state as a row of numbers, for either model
+    training  games as labelled matrices, split by game rather than by row
     model     `WinProbabilityModel`, and a logistic baseline
+    points    `ExpectedPointsModel`: what a snap is worth on the scoreboard
     metrics   scoring the result
     curve     a game's win probability over time, and game control
     luck      the coin flips: the curve without them, and what they were worth
-    release   the artifact a fit is stored as
+    epa       expected points added per play, bounded and weighted
+    release   the artifacts a fit is stored as
     bundled   the fits that ship with the package, and `MODELS`
 
 Installing it comes in three sizes, because those modules do three jobs. A
@@ -77,11 +91,13 @@ keep that true.
 
 from .bundled import MODELS
 from .curve import CurvePoint, GameControl
+from .epa import EpaPerPlay
 from .game import GamePlays, group_by_game
 
 __all__ = [
     "MODELS",
     "CurvePoint",
+    "EpaPerPlay",
     "GameControl",
     "GamePlays",
     "group_by_game",

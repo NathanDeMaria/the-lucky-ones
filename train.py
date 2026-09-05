@@ -1,7 +1,12 @@
 """
-Fit a win probability model and write it out as a release.
+Fit the models and write them out as releases, and look at what they say.
 
     make train ARGS="--league nfl --seasons 2022-2025"
+    make train-ep ARGS="--league nfl --seasons 2022-2025"
+
+Two fits per league and two files, because they answer different questions:
+win probability (`train`) is about the game, expected points (`train_ep`) is
+about the snap. `lucky_ones.epa` is the one consumer that needs both.
 
 Two ways to get the plays, and the flag picks between them:
 
@@ -19,9 +24,10 @@ plays come from.
 
 The output is a `WinProbabilityRelease` -- coefficients, what they were fit
 on, and how they scored on held-out games -- written into the package at
-`lucky_ones/releases/{league}.json`, which is the file `MODELS.NFL` serves.
-Commit it: the fit ships with the code, so a retrain is a diff of eight
-coefficients and a holdout score. See README.md for the consumer end.
+`lucky_ones/releases/{league}.json`, which is the file `MODELS.NFL` serves,
+and an `ExpectedPointsRelease` next to it at `{league}-ep.json`. Commit them:
+the fits ship with the code, so a retrain is a diff of some coefficients and a
+holdout score. See README.md for the consumer end.
 """
 
 import asyncio
@@ -38,13 +44,19 @@ import numpy as np
 
 from lucky_ones import MODELS, GamePlays, group_by_game
 
-# `lucky_ones` exports the five names a consumer needs to score a game. This
-# script fits one, which is the other half of the package, so it reaches a
-# layer down for nearly everything -- exactly the split the top-level module
-# is drawing.
+# `lucky_ones` exports the six names a consumer needs to score a game. This
+# script fits the models behind them, which is the other half of the package,
+# so it reaches a layer down for nearly everything -- exactly the split the
+# top-level module is drawing.
 from lucky_ones.arrow import DatasetPlaySource, StorePlaySource
-from lucky_ones.bundled import RELEASE_DIR
+from lucky_ones.bundled import EP_SUFFIX, RELEASE_DIR
 from lucky_ones.curve import game_control
+from lucky_ones.epa import (
+    DEFAULT_CLIP,
+    DEFAULT_WEIGHT_POWER,
+    epa_per_play,
+    play_epa,
+)
 from lucky_ones.luck import (
     DEFAULT_RETAINED,
     DEFENDED_MARKERS,
@@ -55,12 +67,39 @@ from lucky_ones.luck import (
     lucky_wp_from_states,
     records_defended_passes,
 )
-from lucky_ones.metrics import brier_score, log_loss
+from lucky_ones.metrics import (
+    brier_score,
+    log_loss,
+    mean_absolute_error,
+    multiclass_log_loss,
+)
 from lucky_ones.model import LogisticWinProbability, WinProbabilityModel
 from lucky_ones.plays import Play, PlaySource
-from lucky_ones.release import Metrics, TrainedOn, WinProbabilityRelease
-from lucky_ones.state import iter_states
-from lucky_ones.training import build_training_set, split_games
+from lucky_ones.points import (
+    FIRST_LEGIBLE_SEASON,
+    SCORE_VALUES,
+    ExpectedPointsModel,
+    MultinomialExpectedPoints,
+    scoring_plays,
+)
+from lucky_ones.release import (
+    ExpectedPointsMetrics,
+    ExpectedPointsRelease,
+    Metrics,
+    TrainedOn,
+    WinProbabilityRelease,
+)
+from lucky_ones.state import (
+    PERIOD_SECONDS,
+    REGULATION_SECONDS,
+    GameState,
+    iter_states,
+)
+from lucky_ones.training import (
+    build_expected_points_set,
+    build_training_set,
+    split_games,
+)
 
 logger = logging.getLogger("train")
 
@@ -214,6 +253,181 @@ def train(
         "Holdout: brier %.4f, log loss %.4f over %d games",
         metrics.brier_score,
         metrics.log_loss,
+        metrics.n_games,
+    )
+    logger.info("Wrote %s", destination)
+
+
+# The snaps to print an expected points readout for after a fit. Not a test --
+# an eyeball check, in the same spirit as printing the win probability
+# coefficients: these four are situations whose value everyone already knows,
+# so a fit that gets them wrong is wrong in a way you can see from here.
+_LANDMARKS: tuple[tuple[str, dict], ...] = (
+    ("1st and 10, own 25", dict(down=1, distance=10, yardline=25)),
+    ("1st and 10, midfield", dict(down=1, distance=10, yardline=50)),
+    ("1st and goal, the 2", dict(down=1, distance=2, yardline=98)),
+    ("3rd and 15, own 5", dict(down=3, distance=15, yardline=5)),
+)
+
+
+def _landmark_state(**situation) -> GameState:
+    """One of `_LANDMARKS` as a state, early in the first quarter."""
+    return GameState(
+        game_id="landmark",
+        play_id="landmark",
+        play_number=1,
+        period=1,
+        clock_seconds=PERIOD_SECONDS,
+        seconds_remaining=REGULATION_SECONDS,
+        is_overtime=False,
+        home_score=0,
+        away_score=0,
+        offense_is_home=True,
+        **situation,
+    )
+
+
+def _score_ep(
+    model: MultinomialExpectedPoints, games: Sequence[GamePlays]
+) -> ExpectedPointsMetrics:
+    """
+    Log loss over the seven classes and mean absolute error in points, over
+    every snap of games the fit never saw.
+
+    A holdout class the fit never saw gets a column of zeros rather than
+    being dropped: it is a genuine miss and log loss should charge for it,
+    and dropping it would flatter a fit that ran short of one class exactly
+    when it mattered. Only reachable on a tiny fit -- a real season has all
+    seven.
+    """
+    holdout = build_expected_points_set(games)
+    if not holdout.states:
+        raise ValueError("The holdout has no snaps in it; use more seasons")
+    index_of = {kind: index for index, kind in enumerate(model.kinds)}
+    unseen = len(index_of)
+    probabilities = model.predict_proba(holdout.states)
+    if any(kind not in index_of for kind in holdout.next_score):
+        probabilities = np.hstack([probabilities, np.zeros((len(probabilities), 1))])
+    actual = np.array(
+        [index_of.get(kind, unseen) for kind in holdout.next_score], dtype=int
+    )
+    return ExpectedPointsMetrics(
+        log_loss=multiclass_log_loss(probabilities, actual),
+        mean_absolute_error=mean_absolute_error(
+            model.predict(holdout.states),
+            np.array([SCORE_VALUES[kind] for kind in holdout.next_score]),
+        ),
+        n_games=len({state.game_id for state in holdout.states}),
+        n_snaps=holdout.rows,
+    )
+
+
+def train_ep(
+    league: str = "nfl",
+    seasons: str = "2025",
+    weeks: str | None = None,
+    root: str | None = None,
+    out: str | None = None,
+    holdout_fraction: float = 0.2,
+    seed: int = 0,
+) -> None:
+    """
+    Fit an expected points model and write the release.
+
+    The same shape as `train`, one directory over: it writes
+    `lucky_ones/releases/{league}-ep.json`, which is what
+    `MODELS.NFL.expected_points` serves and half of what
+    `MODELS.NFL.epa_per_play` needs. Commit it for the same reason.
+
+    Held out by game, and that matters more here than it does for `train`:
+    every snap of a drive usually carries the same label -- the same next
+    score -- so a row-wise split would be scoring the fit on drives it had
+    already been told the answer to.
+
+    The seasons to fit it on are not the seasons `train` uses, and the
+    difference is in the data rather than in the modelling. A win probability
+    label needs only the final score, which every season records correctly.
+    This one needs to know *when* the points went up, and before 2014 both
+    leagues' score columns jitter badly enough that a tenth of the scoring
+    can't be placed -- see `lucky_ones.points.score_events`. The shipped fits
+    start at 2014 for that reason, and the class shares printed below are
+    where a season that stopped saying would show up.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    years, week_numbers = _parse_seasons(seasons), _parse_weeks(weeks)
+    plays = asyncio.run(_load(_source(root), league, years, week_numbers))
+    games = group_by_game(plays)
+    if not games:
+        raise ValueError(
+            f"No {league} games in {seasons}. With --root, check the path points "
+            "at the `processed/plays` directory; without it, check AWS_PROFILE."
+        )
+
+    fit_games, holdout_games = split_games(
+        games, holdout_fraction=holdout_fraction, seed=seed
+    )
+    illegible = [season for season in years if season < FIRST_LEGIBLE_SEASON]
+    if illegible:
+        # Not fatal -- somebody measuring the damage wants to be able to ask
+        # for these -- but silently fitting on them is how a worse model gets
+        # shipped without a line in the diff saying so.
+        logger.warning(
+            "%s: the score columns can't place about one score in ten before "
+            "%d, so a tenth of these labels land on the wrong drive. See "
+            "lucky_ones.points.score_events; the shipped fits start at %d.",
+            ", ".join(str(season) for season in illegible),
+            FIRST_LEGIBLE_SEASON,
+            FIRST_LEGIBLE_SEASON,
+        )
+
+    training = build_expected_points_set(fit_games)
+    logger.info(
+        "Fitting on %d games (%d snaps), holding out %d games",
+        len(fit_games),
+        training.rows,
+        len(holdout_games),
+    )
+    model = MultinomialExpectedPoints.fit(training.states, training.next_score)
+    metrics = _score_ep(model, holdout_games)
+
+    created_at = datetime.now(timezone.utc)
+    release = ExpectedPointsRelease.from_model(
+        model,
+        run_id=created_at.strftime("%Y%m%d-%H%M%S"),
+        league=league,
+        trained_on=TrainedOn(
+            league=league,
+            seasons=years,
+            weeks=week_numbers,
+            n_games=len(fit_games),
+            n_snaps=training.rows,
+        ),
+        metrics=metrics,
+        created_at=created_at,
+        created_by=_whoami(),
+    )
+
+    destination = Path(out) if out else RELEASE_DIR / f"{league}{EP_SUFFIX}.json"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(release.model_dump_json(indent=2) + "\n")
+
+    shares = Counter(training.next_score)
+    for kind in model.kinds:
+        logger.info(
+            "  %-22s %5.1f%% of snaps",
+            kind.value,
+            100.0 * shares[kind] / max(training.rows, 1),
+        )
+    for label, situation in _LANDMARKS:
+        logger.info(
+            "  %-22s %+.2f points",
+            label,
+            model.predict([_landmark_state(**situation)])[0],
+        )
+    logger.info(
+        "Holdout: log loss %.4f, mean absolute error %.2f points over %d games",
+        metrics.log_loss,
+        metrics.mean_absolute_error,
         metrics.n_games,
     )
     logger.info("Wrote %s", destination)
@@ -564,5 +778,233 @@ def _whoami() -> str:
         return "unknown"
 
 
+def _fits(
+    league: str, model: str, ep_model: str
+) -> tuple[WinProbabilityModel, ExpectedPointsModel]:
+    """
+    The pair of fits an EPA needs: the bundled ones for `league` unless a
+    path was given for either.
+
+    Two flags rather than one because the two fits are retrained separately,
+    and checking a fresh expected points model against the shipped win
+    probability one is the normal thing to want.
+    """
+    win = (
+        WinProbabilityRelease.model_validate_json(Path(model).read_text()).to_model()
+        if model
+        else MODELS[league]
+    )
+    points = (
+        ExpectedPointsRelease.model_validate_json(Path(ep_model).read_text()).to_model()
+        if ep_model
+        else MODELS[league].expected_points
+    )
+    return win, points
+
+
+def epa(
+    game_id: str | int,
+    league: str = "nfl",
+    season: int = 2025,
+    week: int = 1,
+    model: str = "",
+    ep_model: str = "",
+    root: str | None = None,
+    clip: float = DEFAULT_CLIP,
+    weight_power: float = DEFAULT_WEIGHT_POWER,
+) -> None:
+    """
+    Print one game's EPA per play as JSON, and every snap behind it.
+
+    The eyeball check on an expected points release, and the same call a
+    backend makes: `make epa ARGS="401671789 --week 3"`. Both offenses' number
+    comes out, with the effective sample behind each -- and `plays` carries
+    every snap with what it was worth, what the bound did to it and how much
+    the game was still in doubt when it happened, so "which plays is this
+    number made of" is a sort rather than a second run.
+
+    `--clip inf --weight_power 0` prints the plain unweighted mean of raw EPA,
+    which is the number to compare against when you want to see what the two
+    adjustments are actually doing.
+
+    `game_id` is coerced for the reason `curve`'s is: fire makes an int of an
+    all-digit argument, and pyarrow won't compare one to a string column.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    game_id = str(game_id)
+    win, points = _fits(league, model, ep_model)
+    plays = asyncio.run(_source(root).load_game(league, season, week, game_id))
+    games = group_by_game(plays)
+    if not games:
+        raise ValueError(f"No plays for {league} {season} week {week} game {game_id}")
+    (game,) = games
+
+    result = epa_per_play(points, win, game, clip=clip, weight_power=weight_power)
+    print(
+        json.dumps(
+            {
+                "game_id": game.game_id,
+                "home_team_id": game.home_team_id,
+                "away_team_id": game.away_team_id,
+                "clip": clip,
+                "weight_power": weight_power,
+                "epa_per_play": {
+                    "home": result.home,
+                    "away": result.away,
+                    "net": result.net,
+                    "home_plays": result.home_plays,
+                    "away_plays": result.away_plays,
+                    "home_weight": round(result.home_weight, 3),
+                    "away_weight": round(result.away_weight, 3),
+                },
+                "plays": [play._asdict() for play in result.plays],
+            },
+            indent=2,
+        )
+    )
+
+
+# The quantiles `bounds` reports. Weighted towards the tails on purpose: the
+# middle of an EPA distribution is not in question and the bound is entirely
+# a decision about the ends, so the interesting rows are p1/p99 (where
+# DEFAULT_CLIP sits) and p0.1/p99.9 (the plays it is bounding).
+_QUANTILES = (0.001, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 0.999)
+
+# And of |EPA|, which is what a symmetric bound is actually a quantile of.
+_ABS_QUANTILES = (0.9, 0.95, 0.975, 0.99, 0.995, 0.999)
+
+
+def bounds(
+    league: str = "nfl",
+    seasons: str = "2025",
+    weeks: str | None = None,
+    root: str | None = None,
+    model: str = "",
+    ep_model: str = "",
+    clip: float = DEFAULT_CLIP,
+    weight_power: float = DEFAULT_WEIGHT_POWER,
+) -> None:
+    """
+    Measure the distribution behind `DEFAULT_CLIP` and `DEFAULT_WEIGHT_POWER`,
+    per season, as JSON.
+
+        make bounds ARGS="--league nfl --seasons 2009-2025 --root ./plays"
+
+    What `rates` is to `DEFAULT_RETAINED`, this is to the two knobs in
+    `lucky_ones.epa`, and it runs through `play_epa` for the same reason: the
+    numbers come off exactly the code path that averages them, so this is the
+    distribution the metric sees rather than a second opinion about it.
+
+    Three things per season, and they answer three different questions.
+
+    **`quantiles` and `beyond_clip`: where is the tail, and how much of it is
+    the bound touching?** A clip belongs at the point where a play stops being
+    football and starts being an accident of the sample, which is somewhere
+    past p99 -- and `beyond_clip` says what fraction of snaps that turns out
+    to be. If it is more than a percent or two the bound is doing more than
+    bounding.
+
+    **`weight`: how much of a season survives the weighting?**
+    `effective_play_share` is the mean play weight, so 0.6 says that after
+    down-weighting the decided stretches, a season's snaps are worth about
+    three fifths of their count. Read it as what the number is averaged over.
+
+    **`game_shift`: does any of this change the answer?** The per-game,
+    per-team gap between the number this module reports and the plain
+    unweighted mean of raw EPA. If that were near zero the two knobs would be
+    ceremony; it is not, and its size is the honest statement of how much of
+    this metric is a modelling choice.
+    """
+    years = _parse_seasons(seasons)
+    win, points = _fits(league, model, ep_model)
+    plays = asyncio.run(_load(_source(root), league, years, _parse_weeks(weeks)))
+    if not plays:
+        raise ValueError(f"No {league} plays in {seasons}")
+
+    per_season: dict[int, list[np.ndarray]] = defaultdict(list)
+    shifts: dict[int, list[float]] = defaultdict(list)
+    for game in group_by_game(plays):
+        scored = scoring_plays(list(game.plays))
+        priced = play_epa(
+            points,
+            win,
+            list(iter_states(game)),
+            scored,
+            clip=clip,
+            weight_power=weight_power,
+        )
+        if not priced:
+            continue
+        per_season[game.season].append(
+            np.array([[play.epa, play.bounded, play.weight] for play in priced])
+        )
+        for home in (True, False):
+            side = [play for play in priced if play.offense_is_home == home]
+            weight = sum(play.weight for play in side)
+            if not side or weight <= 0.0:
+                continue
+            adjusted = sum(play.weight * play.bounded for play in side) / weight
+            raw = sum(play.epa for play in side) / len(side)
+            shifts[game.season].append(abs(adjusted - raw))
+
+    print(
+        json.dumps(
+            {
+                "league": league,
+                "seasons": years,
+                "clip_in_use": clip,
+                "weight_power_in_use": weight_power,
+                "by_season": {
+                    str(season): _bound_summary(
+                        np.vstack(per_season[season]), shifts[season], clip
+                    )
+                    for season in sorted(per_season)
+                },
+            },
+            indent=2,
+        )
+    )
+
+
+def _bound_summary(priced: np.ndarray, shifts: Sequence[float], clip: float) -> dict:
+    """One season's rows of `[epa, bounded, weight]`, summarised."""
+    raw, weight = priced[:, 0], priced[:, 2]
+    return {
+        "plays": len(raw),
+        "mean_abs_epa": round(float(np.mean(np.abs(raw))), 4),
+        "quantiles": {
+            f"p{quantile * 100:g}": round(float(value), 3)
+            for quantile, value in zip(_QUANTILES, np.quantile(raw, _QUANTILES))
+        },
+        # The signed distribution above is lopsided -- the downside tail is
+        # turnovers and the upside is only touchdowns -- so a symmetric bound
+        # is a statement about this one, not about that one.
+        "abs_quantiles": {
+            f"p{quantile * 100:g}": round(float(value), 3)
+            for quantile, value in zip(
+                _ABS_QUANTILES, np.quantile(np.abs(raw), _ABS_QUANTILES)
+            )
+        },
+        "beyond_clip": round(float(np.mean(np.abs(raw) > clip)), 4),
+        "effective_play_share": round(float(np.mean(weight)), 4),
+        "game_shift": {
+            "team_games": len(shifts),
+            "median_abs": (round(float(np.median(shifts)), 4) if len(shifts) else None),
+            "p95_abs": (
+                round(float(np.quantile(shifts, 0.95)), 4) if len(shifts) else None
+            ),
+        },
+    }
+
+
 if __name__ == "__main__":
-    fire.Fire({"train": train, "curve": curve, "rates": rates})
+    fire.Fire(
+        {
+            "train": train,
+            "train_ep": train_ep,
+            "curve": curve,
+            "epa": epa,
+            "rates": rates,
+            "bounds": bounds,
+        }
+    )
