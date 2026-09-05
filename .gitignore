@@ -10,6 +10,10 @@ __pycache__
 # has to pin the model too. hatchling reads this file when it decides what goes
 # in the build, so an ignored fit would also be a fit missing from the install.
 !lucky_ones/releases/*.json
+# And the validation reports under docs/, for the same reason: every figure in
+# docs/epa-validation.md is read from one, so a claim about a model changing is
+# a diff rather than a screenshot. `make validate` rewrites them.
+!docs/validation-*.json
 # A devcontainer config is hand-written input, not scratch output
 !**/.devcontainer/*.json
 .env

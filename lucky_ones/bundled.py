@@ -7,6 +7,12 @@ The fits that ship inside the package, and the `MODELS` that reaches them.
     control = MODELS.NCAAFB.game_control(game)               # what happened
     earned = MODELS.NCAAFB.luck_adjusted_game_control(game)  # on purpose
     breaks = MODELS.NCAAFB.lucky_wp(game)                    # and the bounces
+    epa = MODELS.NCAAFB.epa_per_play(game)                   # and how they played
+
+Two fits per league, in two files: `{league}.json` is the win probability
+model and `{league}-ep.json` the expected points one. Separate because they
+are fit separately and move separately -- a retrain of one should be a diff of
+one -- and reunited here, since `epa_per_play` is the call that needs both.
 
 The releases in `lucky_ones/releases/` are data files inside the wheel, not
 something a consumer fetches. That is a deliberate trade: a fit is ~1.3KB of
@@ -39,6 +45,12 @@ from typing import Iterator, Mapping, Sequence
 import numpy as np
 
 from .curve import CurvePoint, GameControl, curve_from_states, game_control
+from .epa import (
+    DEFAULT_CLIP,
+    DEFAULT_WEIGHT_POWER,
+    EpaPerPlay,
+    epa_per_play,
+)
 from .game import GamePlays
 from .luck import (
     DEFAULT_RETAINED,
@@ -50,13 +62,30 @@ from .luck import (
     lucky_wp,
 )
 from .model import LogisticWinProbability
-from .release import Metrics, TrainedOn, WinProbabilityRelease
+from .points import MultinomialExpectedPoints
+from .release import (
+    ExpectedPointsMetrics,
+    ExpectedPointsRelease,
+    Metrics,
+    TrainedOn,
+    WinProbabilityRelease,
+)
 from .state import GameState, iter_states
 
 # Where the shipped fits live, as a filesystem path, for the one caller that
 # writes them: `train.py`. Reading goes through `importlib.resources` below
 # instead, which also works when the package isn't a directory on disk.
 RELEASE_DIR = Path(__file__).parent / "releases"
+
+EP_SUFFIX = "-ep"
+"""
+What separates the two fits in one directory: `nfl.json` is win probability
+and `nfl-ep.json` is expected points.
+
+A suffix rather than a subdirectory because the wheel packages the directory
+and .gitignore negates exactly one glob in it -- both of which are one line
+that a second level of nesting would have to grow a second copy of.
+"""
 
 
 class BundledModel:
@@ -79,20 +108,50 @@ class BundledModel:
     @cached_property
     def release(self) -> WinProbabilityRelease:
         """
-        The parsed release, read from the package's own data on first use.
+        The parsed win probability release, read from the package's own data
+        on first use.
 
         Raises `FileNotFoundError` if the league's file isn't in the install,
         which means either a build that dropped the data files (see the
         wheel's `artifacts` in pyproject) or a league nobody has fit yet.
         """
-        resource = files(__package__).joinpath("releases", f"{self.league}.json")
+        return WinProbabilityRelease.model_validate_json(
+            self._read(f"{self.league}.json", "train")
+        )
+
+    @cached_property
+    def expected_points_release(self) -> ExpectedPointsRelease:
+        """
+        The parsed expected points release. Same arrangement, second file.
+
+        Read separately and lazily, so a service that only ever draws win
+        probability curves never opens it -- and a league with a win
+        probability fit and no expected points fit still works for everything
+        except `epa_per_play`.
+        """
+        return ExpectedPointsRelease.model_validate_json(
+            self._read(f"{self.league}{EP_SUFFIX}.json", "train-ep")
+        )
+
+    def _read(self, filename: str, target: str) -> str:
+        """
+        One release file out of the package's own data, or a
+        `FileNotFoundError` naming the make target that would produce it.
+
+        Through `importlib.resources` rather than `RELEASE_DIR`, so it also
+        works where the package isn't a directory on disk -- a zipimport, or
+        anything that installs the wheel without unpacking it. `RELEASE_DIR`
+        is only in the message, where it answers "where would it go".
+        """
+        resource = files(__package__).joinpath("releases", filename)
         if not resource.is_file():
             raise FileNotFoundError(
-                f"No bundled fit for {self.league!r}. Fit one with "
-                f"`make train ARGS='--league {self.league} ...'`, which writes "
-                f"into {RELEASE_DIR}, and commit it."
+                f"No bundled {filename} -- no {target} fit for "
+                f"{self.league!r}. Make one with `make {target} "
+                f"ARGS='--league {self.league} ...'`, which writes into "
+                f"{RELEASE_DIR}, and commit it."
             )
-        return WinProbabilityRelease.model_validate_json(resource.read_text())
+        return resource.read_text()
 
     @cached_property
     def model(self) -> LogisticWinProbability:
@@ -108,6 +167,19 @@ class BundledModel:
         """
         return self.release.to_model()
 
+    @cached_property
+    def expected_points(self) -> MultinomialExpectedPoints:
+        """
+        The expected points fit: what a snap is worth to the team with the
+        ball.
+
+        `MODELS.NFL.expected_points.predict(states)` satisfies
+        `ExpectedPointsModel`, and `predict_proba` is the more readable half
+        of it -- seven probabilities for what scores next, which is what the
+        expected value is an average of.
+        """
+        return self.expected_points_release.to_model()
+
     # The release's own fields, forwarded because they answer the questions a
     # caller has at the point of use -- "is this fit any good", "did it see
     # this season" -- and `MODELS.NFL.metrics` reads better than
@@ -116,6 +188,11 @@ class BundledModel:
     def metrics(self) -> Metrics:
         """How the fit scored on games it wasn't fit on. Lower is better."""
         return self.release.metrics
+
+    @property
+    def expected_points_metrics(self) -> ExpectedPointsMetrics:
+        """How the expected points fit scored on games it wasn't fit on."""
+        return self.expected_points_release.metrics
 
     @property
     def trained_on(self) -> TrainedOn:
@@ -198,6 +275,35 @@ class BundledModel:
         what the tipped-ball half of the number can and cannot see.
         """
         return lucky_wp(self.model, game, retained=retained)
+
+    def epa_per_play(
+        self,
+        game: GamePlays,
+        *,
+        clip: float = DEFAULT_CLIP,
+        weight_power: float = DEFAULT_WEIGHT_POWER,
+    ) -> EpaPerPlay:
+        """
+        Each offense's expected points added per play, bounded and weighted.
+
+        The one call that reads both of the league's fits: expected points to
+        price the snaps, win probability to say how much the game they
+        happened in was still in doubt. Neither is retrained -- see
+        `lucky_ones.epa`, including what `clip` and `weight_power` do and what
+        turning them off gives you.
+
+        Read it next to `game_control` rather than instead of it. Control says
+        who was ahead of this game; this says who played better, and the two
+        genuinely disagree -- which is most of what there is to say about a
+        team that keeps winning close ones.
+        """
+        return epa_per_play(
+            self.expected_points,
+            self.model,
+            game,
+            clip=clip,
+            weight_power=weight_power,
+        )
 
 
 @dataclass(frozen=True)

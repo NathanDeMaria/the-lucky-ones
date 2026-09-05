@@ -39,6 +39,13 @@ train:
 	uv run python train.py train $(ARGS)
 
 
+# The other fit: expected points, written to
+# lucky_ones/releases/{league}-ep.json. Half of what `epa` needs, and a
+# separate file so a retrain of one model is a diff of one model.
+train-ep:
+	uv run python train.py train_ep $(ARGS)
+
+
 # The rates behind DEFAULT_RETAINED, per season, as JSON -- what a `retained`
 # is worth arguing about and what it isn't:
 #   make rates ARGS="--league ncaafb --seasons 2006-2025 --root ./plays"
@@ -53,6 +60,29 @@ curve:
 	uv run python train.py curve $(ARGS)
 
 
+# The same eyeball check for the expected points fit: one game's EPA per play
+# and every snap behind it. `make epa ARGS="401671789 --week 3"`.
+epa:
+	uv run python train.py epa $(ARGS)
+
+
+# The EPA distribution behind DEFAULT_CLIP and DEFAULT_WEIGHT_POWER, per
+# season -- where the tail is, how much of a season the weighting keeps, and
+# whether either changes a game's number:
+#   make bounds ARGS="--league nfl --seasons 2009-2025 --root ./plays"
+bounds:
+	uv run python train.py bounds $(ARGS)
+
+
+# Are the models any good? Refits both on 2014-2022 and reports calibration,
+# skill and split-half stability on seasons neither fit has seen, writing the
+# JSON and the charts that docs/epa-validation.md is a view of:
+#   make validate ARGS="--league nfl --root ./plays"
+# Rerun it for both leagues when a release or a feature list changes.
+validate:
+	uv run python validate.py validate $(ARGS)
+
+
 # A local copy of the processed play-by-play, so a fit can be re-run without
 # credentials. The prefix is endgame's; BUCKET comes from the same config the
 # store reads.
@@ -61,4 +91,4 @@ plays:
 	aws s3 sync s3://${BUCKET}/processed/plays ./plays
 
 
-.PHONY: lint check test wheel train curve rates plays
+.PHONY: lint check test wheel train train-ep curve epa rates bounds validate plays
