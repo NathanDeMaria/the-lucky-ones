@@ -260,22 +260,45 @@ than by a default. The next three sections are where that split comes from —
 the precision the weighting costs, the description it buys, and why no middle
 setting does both.
 
-### The bound earns its place
+### The bound earns its place — but 5.0 is not where the measurement puts it
 
-Against the unadjusted number, in college, where there are enough team-seasons
-to resolve a small effect:
+Against no bound at all, with the weighting off:
 
-| clip (weighting off) | reliability | all scoring | live scoring |
-| --- | --- | --- | --- |
-| 3.0 | +0.032 (P 1.00) | +0.008 (P 0.94) | +0.002 (P 0.67) |
-| **5.0 (shipped)** | **+0.014 (P 1.00)** | **+0.005 (P 0.97)** | **+0.002 (P 0.75)** |
+| clip | NFL scoring | NFL live | NCAAFB scoring | NCAAFB live |
+| --- | --- | --- | --- | --- |
+| 1 | 0.5029 | 0.4536 | 0.4907 | 0.2510 |
+| 2 | 0.5495 | 0.4885 | 0.4971 | 0.2613 |
+| 2.5 | 0.5565 | **0.4912** | **0.4972** | 0.2627 |
+| **3** | **0.5585** | 0.4897 | 0.4969 | 0.2637 |
+| 3.5 | 0.5580 | 0.4872 | 0.4963 | **0.2642** |
+| 4 | 0.5573 | 0.4850 | 0.4957 | **0.2642** |
+| **5 — shipped** | 0.5544 | 0.4811 | 0.4938 | 0.2631 |
+| 7 | 0.5532 | 0.4803 | 0.4913 | 0.2621 |
+| none | 0.5548 | 0.4826 | 0.4890 | 0.2613 |
 
-Small, consistent, and positive on every target. A tighter clip scores better
-on reliability, but reliability rewards throwing away variance with no natural
-stopping point — and the predictive targets flatten out between 2.5 and 5, with
-live scoring falling away below 2. So the measurement puts the useful range at
-roughly 3 to 5 and cannot separate values inside it; 5.0 is chosen from the
-football, where it sits on the ordinary ceiling of what one snap does.
+Three things.
+
+**The bound is real.** Every value from 2 to 7 beats no bound at all on the
+college targets, and reliability improves monotonically as it tightens — in
+college by +0.050 at clip 1 (P = 1.00).
+
+**Reliability alone would clip everything,** which is why it isn't the
+criterion. It rewards throwing away variance with no stopping point. The
+predictive targets are what bracket the answer: at clip 1 they *collapse* —
+five points off the NFL scoring correlation — because the bound has started
+destroying signal instead of noise.
+
+**The optimum is a plateau from 2.5 to 4, centred on 3, and the shipped 5.0
+sits outside it.** Clip 3 beats clip 5 on four of four predictive cells across
+both leagues, by 0.0006 to 0.0086.
+
+That is a small margin against a real counter-argument. 5.0 was chosen because
+it sits on the ordinary ceiling of what one snap does — a 60-yard touchdown
+from your own 40 is +5.07 and a deep interception −5.12, so at 5 the bound
+touches only the compound play that was two events. At 3 it bites about one
+snap in twenty, including plays that are unambiguously football, and the number
+gets harder to describe. The measurement prefers 3; the interpretation prefers
+5; the gap between them is under a hundredth of a correlation.
 
 ### The weighting is a precision cost, and nothing else
 
