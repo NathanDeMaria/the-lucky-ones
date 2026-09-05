@@ -667,22 +667,22 @@ time?**
 epa = MODELS.NFL.epa_per_play(game)
 
 # Weighted -- what each offense did while the game was still in doubt.
-epa.home  # +0.18
-epa.away  # +0.47
-epa.net  # -0.29 -- the away team was much the better side while it mattered
+epa.home  # +0.19
+epa.away  # +0.41
+epa.net  # -0.23 -- the away team was the better side while it mattered
 
 # Flat -- every snap counted once. The one to rank a season on.
-epa.home_unweighted  # +0.37
-epa.away_unweighted  # +0.38
-epa.net_unweighted  # -0.01 -- over the whole game they were level
+epa.home_unweighted  # +0.34
+epa.away_unweighted  # +0.33
+epa.net_unweighted  # +0.02 -- over the whole game they were level
 
 epa.home_plays  # 64 snaps
 epa.home_weight  # 33.6 of them -- what the weighted average covers
 ```
 
-That gap is the point of reporting both. The home team's flat number is double
-its weighted one, because it piled up expected points after the game was
-decided.
+That gap is the point of reporting both. The home team's flat number is nearly
+double its weighted one, because it piled up expected points after the game was
+decided — and the two numbers disagree about who was better.
 
 Expected points added is the difference between what a situation was worth
 before a snap and what it's worth after it, signed for the team that had the
@@ -847,29 +847,31 @@ in both leagues at once.
 
 ### The bound
 
-EPA has fat tails. Most snaps are worth a fraction of a point and a pick-six
-is worth eleven, so a game's mean is largely a report of whether one enormous
-play happened. `clip` bounds each play's contribution at ±`DEFAULT_CLIP`,
-which is **5.0**.
+EPA has fat tails. Most snaps are worth a fraction of a point and a red-zone
+pick-six is worth eleven, so a game's mean is largely a report of whether one
+enormous play happened. `clip` bounds each play's contribution at
+±`DEFAULT_CLIP`, which is **3.0**.
 
-`make bounds` is the measurement, and it runs through `play_epa`, so what
-comes back is the distribution the metric averages rather than a second
-opinion about it:
+That is measured, and it moved. `make bounds` gives the distribution and
+`make validate` sweeps the bound against held-out prediction:
 
-```sh
-make bounds ARGS="--league nfl --seasons 2014-2025 --root ./plays"
-```
+| clip | NFL scoring | NFL live | NCAAFB scoring | NCAAFB live |
+| --- | --- | --- | --- | --- |
+| 1 | 0.503 | 0.454 | 0.491 | 0.251 |
+| 2 | 0.550 | 0.489 | 0.497 | 0.261 |
+| **3** | **0.559** | **0.490** | 0.497 | 0.264 |
+| 5 | 0.554 | 0.481 | 0.494 | 0.263 |
+| none | 0.555 | 0.483 | 0.489 | 0.261 |
 
-| percentile of absolute EPA | **p99** | across the seasons measured |
-| --- | --- | --- |
-| NFL 2014–2025 | **5.03 – 5.38** | 1.02% – 1.41% of plays beyond ±5 |
-| NCAAFB 2014–2025 | **5.24 – 5.42** | 1.19% – 1.36% beyond |
+The optimum is a plateau from 2.5 to 4 with 3 in the middle, and it is a real
+interior optimum rather than variance reduction running away: at clip 1 the
+predictive targets *collapse* — five points off the NFL scoring correlation —
+because the bound has started eating signal. (Split-half reliability, by
+contrast, keeps improving as the bound tightens all the way down, which is
+exactly why it isn't the criterion.)
 
-The 99th percentile is 5.03 to 5.42 across all twenty-four league-seasons from
-2014 on, so 5.0 bounds about one snap in a hundred and leaves the other
-ninety-nine exactly alone. The reason to believe that number isn't the percentile, though — it's
-that the football agrees with it. Ask the fit what the biggest ordinary snaps
-are worth:
+**5.0 shipped first, and the argument for it lost.** It was chosen because it
+sits on the ordinary ceiling of what one snap does:
 
 | the biggest things one snap does | NFL |
 | --- | --- |
@@ -877,23 +879,17 @@ are worth:
 | interception at your own 25, returned to the spot | **−5.12** |
 | the same interception returned for a touchdown | −8.11 |
 
-The first two are the ceiling of what a team does on purpose, they happen a
-few times a game, and a metric that flinches at them is measuring something
-else. The clip sits right on them — within a tenth of a point — so what it
-actually truncates is the third row: the compound play, where the ball was
-turned over *and* returned for a score, which is two events the box score
-charges to one snap.
-
-That's also why the first guess was wrong. A clip at 4 is the 97.5th
-percentile, and it bites about one snap in forty — which means it truncates
-ordinary deep interceptions and ordinary long touchdowns, and reports a team
-that threw one as a team that threw something smaller.
+A bound at 5 touches only the third row — the compound play that was really
+two events. A bound at 3 truncates the first two as well, about one snap in
+twenty. That is a genuine cost in how faithfully the number describes a game,
+and it is worth 0.0006 to 0.0086 of correlation on four of four predictive
+cells across both leagues. The measurement wins; the unbounded per-play
+numbers stay on `plays` for anyone who wants them.
 
 Why bound at all, given the tail is real football: a game is only ~130 snaps.
 At its full −11 a red-zone pick-six moves a team's average by 0.08, which is
 most of the gap between a good offense and a bad one, off one play. Bounded it
-moves it by 0.04. The play still dominates the game; it just doesn't get to be
-three plays.
+moves it by 0.02.
 
 ### The weighting
 
@@ -928,14 +924,14 @@ Over every season of both leagues from 2014 (`make bounds` again):
 
 | | mean play weight | median shift in a team's game number | p95 |
 | --- | --- | --- | --- |
-| NFL | 0.52 – 0.57 | 0.07 – 0.09 | 0.30 – 0.39 |
-| NCAAFB | 0.41 – 0.44 | 0.09 – 0.10 | 0.44 – 0.54 |
+| NFL | 0.52 – 0.57 | 0.08 – 0.10 | 0.27 – 0.35 |
+| NCAAFB | 0.41 – 0.44 | 0.09 – 0.10 | 0.39 – 0.48 |
 
 Two readings. A season of NFL snaps is worth a little over half its count once
 the decided stretches are down-weighted, and a season of college snaps well
 under half — college has more blowouts, and the metric says so. And the shift
 is not ceremony: the bound and the weighting together move a team's game
-number by about 0.08 typically and 0.4 at the tail, against a spread between
+number by about 0.09 typically and 0.4 at the tail, against a spread between
 good and bad offenses of a few tenths.
 
 `weight_power` is the exponent, and it *is* measured — see [Is it any
@@ -966,8 +962,8 @@ enough to matter:
 | | reliability vs points/play | |
 | --- | --- | --- |
 | | NFL | NCAAFB |
-| `home_unweighted` | **+0.066** | **+0.113** |
-| `home` (power 2) | +0.003 | −0.004 |
+| `home_unweighted` | **+0.065** | **+0.099** |
+| `home` (clip 3, power 2) | +0.019 | +0.020 |
 
 Both are bounded — the clip helps on every target measured, so it isn't what
 these two differ about. The unclipped per-play numbers are on `plays`.
@@ -1008,16 +1004,17 @@ random into two sets 1,500 times over:
 | | reliability | predicts scoring | predicts live scoring |
 | --- | --- | --- | --- |
 | **EPA/play, knobs off** (NFL) | **0.617** | **0.555** | **0.483** |
-| EPA/play, shipped (NFL) | 0.554 | 0.530 | 0.453 |
+| EPA/play, shipped (NFL) | 0.571 | 0.536 | 0.461 |
 | points/play (NFL) | 0.551 | 0.539 | 0.446 |
 | **EPA/play, knobs off** (NCAAFB) | **0.567** | **0.489** | **0.261** |
-| EPA/play, shipped (NCAAFB) | 0.464 | 0.446 | 0.236 |
+| EPA/play, shipped (NCAAFB) | 0.488 | 0.452 | 0.241 |
 | points/play (NCAAFB) | 0.468 | 0.466 | 0.242 |
 
 Two readings, and they must not be run together. **As a measurement, EPA per
 play beats the box score** — unadjusted it wins all six cells, by +0.099 on
 reliability in college (P = 1.00) and +0.065 in the NFL. **At the shipped
-weighting that edge is spent**, and the number sits level with points per play.
+weighting most of it is spent** — the number stays ahead on reliability (+0.019
+and +0.020) but is level or a shade behind on the scoring targets.
 
 ### What the weighting costs, and what it buys
 
@@ -1034,6 +1031,8 @@ choice of snaps differs. The penalty decomposes exactly, and it is all sample:
 | what that precision costs, in reliability | −0.065 | −0.120 |
 | what the weighting's snap choice buys back | +0.039 | +0.005 |
 
+*(Run on unclipped EPA, so it isolates the weighting from the bound.)*
+
 The snaps it picks are, if anything, marginally better than a random draw of
 the same size — positive in six of six cells, significant in none. So the
 weighting costs precision and nothing else.
@@ -1044,12 +1043,12 @@ while it mattered, and see how close each whole-game number lands:
 
 | | gap to the live-only mean | closed | sample kept |
 | --- | --- | --- | --- |
-| power 0 — no weighting | 0.113 | — | 100% |
-| power 1 | 0.065 | 43% | 86% |
-| **power 2 — shipped, and the best** | **0.053** | **53%** | **76%** |
-| power 5 | 0.081 | 28% | 60% |
+| power 0 — no weighting | 0.098 | — | 100% |
+| power 1 | 0.056 | 43% | 86% |
+| **power 2 — shipped, and the best** | **0.046** | **53%** | **76%** |
+| power 5 | 0.070 | 28% | 60% |
 
-Garbage time is worth about **0.11** to a team's game number (0.26 at the 90th
+Garbage time is worth about **0.10** to a team's game number (0.24 at the 90th
 percentile), against a good-to-bad offense spread of a few tenths — so the
 problem is real, and the shipped power removes over half of it. NFL and college
 trace almost the same curve. It **bottoms at power 2 and climbs again**, which
@@ -1065,10 +1064,13 @@ descriptive gap. By 0.3 college is already behind power 0.
 
 So there's no compromise that does both jobs, which is why the package reports
 **both endpoints** instead of picking one: `home_unweighted` is the best
-estimate of a team, `home` at power 2 is the best description of a game. Both
-defaults are measured — `DEFAULT_CLIP = 5.0` sits on the ordinary ceiling of
-what one snap does, and `DEFAULT_WEIGHT_POWER = 2.0` is where the description
-stops improving.
+estimate of a team, `home` at power 2 is the best description of a game.
+
+Every constant here is measured, and each at the optimum for the job it does.
+`DEFAULT_CLIP = 3.0` is the middle of the predictive plateau and applies to
+both numbers; `DEFAULT_WEIGHT_POWER = 2.0` is where the description stops
+improving, and the flat number is the weighting turned off, which is where
+prediction is best.
 
 ### Three things this one isn't
 
