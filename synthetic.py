@@ -7,7 +7,8 @@ running it for real. This builds a tree in endgame's processed layout
 (`league={}/season={}/week={}/data.parquet`) out of games with a plausible
 clock, drives that alternate, and scores that follow a per-game team
 strength -- enough for `train.py --root` to fit something and for a test to
-assert it did.
+assert it did. Scores move the score columns *and* set `scoring_play`,
+because both models read them and `lucky_ones.points` insists on both.
 
 It is a fixture, not a simulator. The plays are not football; the *shape* is.
 Never fit a model you intend to use on this.
@@ -78,7 +79,8 @@ def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
             # Sharper than football, on purpose: a fixture whose scores don't
             # track the strength teaches the fit nothing.
             edge = strength if offense == home else -strength
-            if rng.random() < 0.04 + max(0.0, edge) / 400:
+            scored = rng.random() < 0.04 + max(0.0, edge) / 400
+            if scored:
                 points = rng.choice([3, 7])
                 if offense == home:
                     home_score += points
@@ -132,6 +134,11 @@ def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
                     drive_number=drive_number,
                     text=text,
                     is_turnover=lost or intercepted,
+                    # The second witness `lucky_ones.points.score_events`
+                    # needs. A tree that moved the score without flagging it
+                    # would be a fixture of the pre-2014 feed's bug, and
+                    # expected points would find nothing in it to fit.
+                    scoring_play=scored,
                 )
             )
             if lost or intercepted or drive_snaps >= DRIVE_SNAPS:
@@ -139,9 +146,16 @@ def game_rows(game_id: str, home: str, away: str, seed: int) -> list[dict]:
                 drive_number += 1
     if home_score == away_score:
         # A tie has no label, and `build_training_set` drops it. Fine in real
-        # data, a waste of a fixture game here.
+        # data, a waste of a fixture game here -- so the home team kicks a
+        # late field goal on the last snap that didn't already score. Three
+        # points onto that row and every row after it, since the column is
+        # cumulative, and the flag onto the row itself, since every jump in it
+        # carries one.
+        kicked = max(index for index, row in enumerate(rows) if not row["scoring_play"])
+        for row in rows[kicked:]:
+            row["home_score"] += 3
+        rows[kicked]["scoring_play"] = True
         home_score += 3
-        rows[-1]["home_score"] = home_score
     rows.append(
         make_play(
             game_id=game_id,
@@ -174,19 +188,37 @@ def write_tree(
     Write a whole synthetic season under `root`, and return it.
 
     Layout matches what `aws s3 sync s3://BUCKET/processed/plays ./plays`
-    produces, so `train.py --root` can't tell the difference.
+    produces, so `train.py --root` can't tell the difference. Called twice
+    with two seasons it writes both, which is what `validate.py` needs -- its
+    whole design is fitting on one and measuring on another.
+
+    The teams are a fixed pool that plays every week rather than a fresh pair
+    per game, because anything measuring a *team* needs a team with more than
+    one game. `validate.py`'s split-half section is the caller that cares:
+    against a tree where nobody plays twice it would have had nothing to deal
+    and would have reported an empty section rather than failing.
+
+    The pairing rotates by week, so a team alternates home and away. That is
+    football-shaped and it is also the trap worth having in a fixture: a
+    split-half design that took every *other* game would put a team's home
+    games in one set and its away games in the other.
     """
     root = Path(root)
+    names = [f"t{index}" for index in range(games_per_week * 2)]
     for week in range(1, weeks + 1):
         rows: list[dict] = []
         for game in range(games_per_week):
             number = week * 100 + game
+            home = names[(2 * game + week) % len(names)]
+            away = names[(2 * game + 1 + week) % len(names)]
             rows.extend(
                 game_rows(
-                    f"g{number}",
-                    home=f"home{number}",
-                    away=f"away{number}",
-                    seed=seed + number,
+                    f"g{season}{number}",
+                    home=home,
+                    away=away,
+                    # The season is in the seed so two of them aren't the same
+                    # games under different labels.
+                    seed=seed + number + season * 1000,
                 )
             )
         for row in rows:

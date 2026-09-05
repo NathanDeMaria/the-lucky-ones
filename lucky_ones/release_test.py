@@ -4,12 +4,16 @@ import numpy as np
 import pytest
 
 from .conftest import make_state
-from .features import FEATURE_NAMES
+from .features import EP_FEATURE_NAMES, FEATURE_NAMES
 from .model import LogisticWinProbability
+from .points import MultinomialExpectedPoints, ScoreKind
 from .release import (
+    ExpectedPointsMetrics,
+    ExpectedPointsRelease,
     Metrics,
     TrainedOn,
     WinProbabilityRelease,
+    expected_points_release_json_schema,
     release_json_schema,
 )
 
@@ -91,3 +95,96 @@ def test_the_json_has_no_surprises_for_a_consumer():
         "created_by",
     }
     assert payload["metrics"]["brier_score"] == 0.12
+
+
+# --- The expected points artifact --------------------------------------
+
+
+def _ep_release(**overrides) -> ExpectedPointsRelease:
+    kinds = [
+        ScoreKind.OFFENSE_TOUCHDOWN,
+        ScoreKind.NO_SCORE,
+        ScoreKind.DEFENSE_TOUCHDOWN,
+    ]
+    model = MultinomialExpectedPoints(
+        coefficients=np.arange(len(kinds) * len(EP_FEATURE_NAMES), dtype=float).reshape(
+            len(kinds), len(EP_FEATURE_NAMES)
+        )
+        / 100,
+        intercepts=np.array([0.5, 0.0, -0.5]),
+        kinds=kinds,
+    )
+    return ExpectedPointsRelease.from_model(
+        model,
+        run_id="20260831-000000",
+        league="nfl",
+        trained_on=TrainedOn(
+            league="nfl", seasons=[2024, 2025], weeks=[1, 2], n_games=400, n_snaps=60000
+        ),
+        metrics=ExpectedPointsMetrics(
+            log_loss=1.31, mean_absolute_error=3.7, n_games=100, n_snaps=15000
+        ),
+        created_at=datetime(2026, 8, 31, tzinfo=timezone.utc),
+        created_by="tests",
+        **overrides,
+    )
+
+
+def test_an_expected_points_release_round_trips_through_json():
+    original = _ep_release()
+
+    restored = ExpectedPointsRelease.model_validate_json(original.model_dump_json())
+
+    assert restored == original
+
+
+def test_the_expected_points_release_rehydrates_a_model_that_predicts():
+    release = _ep_release()
+
+    model = release.to_model()
+
+    assert model.kinds == tuple(release.kinds)
+    assert np.allclose(model.coefficients, release.coefficients)
+    points = model.predict([make_state(yardline=60)])[0]
+    assert -7.0 < points < 7.0
+
+
+def test_an_expected_points_release_from_different_features_is_refused():
+    stale = _ep_release().model_copy(update={"feature_names": ["yards_to_goal"]})
+
+    with pytest.raises(ValueError, match="different features"):
+        stale.to_model()
+
+
+def test_the_expected_points_release_carries_its_classes():
+    """
+    Not inferable from a row count: a fit off a short season may never have
+    seen a defensive safety, and which rows are missing decides what every
+    coefficient means.
+    """
+    payload = _ep_release().model_dump(mode="json")
+
+    assert payload["kinds"] == ["offense_touchdown", "no_score", "defense_touchdown"]
+    assert len(payload["coefficients"]) == 3
+    assert payload["model_kind"] == "multinomial"
+
+
+def test_the_expected_points_json_has_no_surprises_for_a_consumer():
+    payload = _ep_release().model_dump(mode="json")
+
+    assert set(payload) == {
+        "schema_version",
+        "run_id",
+        "league",
+        "model_kind",
+        "feature_names",
+        "kinds",
+        "coefficients",
+        "intercepts",
+        "trained_on",
+        "metrics",
+        "created_at",
+        "created_by",
+    }
+    assert payload["metrics"]["mean_absolute_error"] == 3.7
+    assert "schema_version" in expected_points_release_json_schema()["properties"]
