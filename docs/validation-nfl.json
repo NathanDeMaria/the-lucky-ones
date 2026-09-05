@@ -951,6 +951,23 @@
           "high": 0.623
         }
       },
+      "clip 2.5": {
+        "reliability": {
+          "r": 0.6177,
+          "low": 0.4431,
+          "high": 0.7513
+        },
+        "all_scoring": {
+          "r": 0.5565,
+          "low": 0.3978,
+          "high": 0.687
+        },
+        "live_scoring": {
+          "r": 0.4912,
+          "low": 0.3274,
+          "high": 0.6252
+        }
+      },
       "clip 3": {
         "reliability": {
           "r": 0.6186,
@@ -966,6 +983,23 @@
           "r": 0.4897,
           "low": 0.3221,
           "high": 0.6228
+        }
+      },
+      "clip 3.5": {
+        "reliability": {
+          "r": 0.6187,
+          "low": 0.4493,
+          "high": 0.7526
+        },
+        "all_scoring": {
+          "r": 0.558,
+          "low": 0.4004,
+          "high": 0.6892
+        },
+        "live_scoring": {
+          "r": 0.4872,
+          "low": 0.3186,
+          "high": 0.6209
         }
       },
       "clip 4": {
@@ -985,6 +1019,23 @@
           "high": 0.6202
         }
       },
+      "clip 4.5": {
+        "reliability": {
+          "r": 0.6189,
+          "low": 0.4512,
+          "high": 0.7535
+        },
+        "all_scoring": {
+          "r": 0.5559,
+          "low": 0.3996,
+          "high": 0.689
+        },
+        "live_scoring": {
+          "r": 0.4826,
+          "low": 0.3119,
+          "high": 0.618
+        }
+      },
       "clip 5": {
         "reliability": {
           "r": 0.617,
@@ -1000,6 +1051,23 @@
           "r": 0.4811,
           "low": 0.3093,
           "high": 0.6162
+        }
+      },
+      "clip 6": {
+        "reliability": {
+          "r": 0.6146,
+          "low": 0.4527,
+          "high": 0.7502
+        },
+        "all_scoring": {
+          "r": 0.5526,
+          "low": 0.3935,
+          "high": 0.6872
+        },
+        "live_scoring": {
+          "r": 0.4795,
+          "low": 0.3085,
+          "high": 0.6138
         }
       },
       "clip 7": {
@@ -1322,6 +1390,26 @@
           "p_better": 0.585
         }
       },
+      "clip 2.5": {
+        "reliability": {
+          "difference": 0.0012,
+          "low": -0.0654,
+          "high": 0.0648,
+          "p_better": 0.516
+        },
+        "all_scoring": {
+          "difference": 0.0017,
+          "low": -0.0333,
+          "high": 0.0343,
+          "p_better": 0.549
+        },
+        "live_scoring": {
+          "difference": 0.0086,
+          "low": -0.0276,
+          "high": 0.0448,
+          "p_better": 0.686
+        }
+      },
       "clip 3": {
         "reliability": {
           "difference": 0.0021,
@@ -1340,6 +1428,26 @@
           "low": -0.0228,
           "high": 0.0356,
           "p_better": 0.679
+        }
+      },
+      "clip 3.5": {
+        "reliability": {
+          "difference": 0.0022,
+          "low": -0.0433,
+          "high": 0.0454,
+          "p_better": 0.538
+        },
+        "all_scoring": {
+          "difference": 0.0032,
+          "low": -0.0209,
+          "high": 0.0267,
+          "p_better": 0.616
+        },
+        "live_scoring": {
+          "difference": 0.0046,
+          "low": -0.0191,
+          "high": 0.0285,
+          "p_better": 0.647
         }
       },
       "clip 4": {
@@ -1362,6 +1470,26 @@
           "p_better": 0.589
         }
       },
+      "clip 4.5": {
+        "reliability": {
+          "difference": 0.0023,
+          "low": -0.026,
+          "high": 0.0326,
+          "p_better": 0.556
+        },
+        "all_scoring": {
+          "difference": 0.001,
+          "low": -0.014,
+          "high": 0.0169,
+          "p_better": 0.555
+        },
+        "live_scoring": {
+          "difference": 0.0001,
+          "low": -0.0157,
+          "high": 0.0168,
+          "p_better": 0.498
+        }
+      },
       "clip 5": {
         "reliability": {
           "difference": 0.0004,
@@ -1380,6 +1508,26 @@
           "low": -0.0143,
           "high": 0.0121,
           "p_better": 0.412
+        }
+      },
+      "clip 6": {
+        "reliability": {
+          "difference": -0.0019,
+          "low": -0.0174,
+          "high": 0.0159,
+          "p_better": 0.409
+        },
+        "all_scoring": {
+          "difference": -0.0023,
+          "low": -0.0109,
+          "high": 0.007,
+          "p_better": 0.287
+        },
+        "live_scoring": {
+          "difference": -0.0031,
+          "low": -0.012,
+          "high": 0.0068,
+          "p_better": 0.234
         }
       },
       "clip 7": {
