@@ -19,7 +19,7 @@ import pytest
 
 import charts
 from synthetic import write_tree
-from validate import CHARTS, redraw, validate
+from validate import CHARTS, redraw, validate, weighting
 
 
 @pytest.fixture(name="tree")
@@ -271,3 +271,82 @@ def test_docs_reference_charts_that_exist():
 
     for target in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", page):
         assert (docs / target).is_file(), f"{target} is linked but missing"
+
+
+# --- the weighting trial ------------------------------------------------
+
+
+@pytest.fixture(name="trial")
+def trial_fixture(tmp_path, tree):
+    out = tmp_path / "docs"
+    weighting(
+        league="nfl",
+        root=str(tree),
+        out=str(out),
+        fit_seasons="2024",
+        test_seasons="2025",
+        min_games=4,
+        draws=40,
+    )
+    return json.loads((out / "weighting-nfl.json").read_text())
+
+
+def test_the_weighting_trial_reports_every_control(trial):
+    """
+    Three numbers on the same footing plus the two same-games ones. The
+    controls are the whole point: `weighted` against `unadjusted` is the
+    comparison that can't be read, and `weighted` against `thinned` is the one
+    that can.
+    """
+    assert set(trial["metrics"]) == {
+        "unadjusted",
+        "weighted",
+        "thinned",
+        "live_unadjusted",
+        "live_weighted",
+        "live_thinned",
+    }
+    for key in (
+        "weighted_vs_thinned",
+        "thinned_vs_unadjusted",
+        "weighted_vs_unadjusted",
+        "live_weighted_vs_live_unadjusted",
+        "live_weighted_vs_live_thinned",
+    ):
+        for target in ("reliability", "all_scoring", "live_scoring"):
+            assert 0.0 <= trial[key][target]["p_better"] <= 1.0
+
+
+def test_the_thinning_matches_the_weighting_effective_sample(trial):
+    """
+    Kish's `n_eff` is what makes the control a control. It has to be a real
+    fraction of the sample -- below 1 because weighting always costs
+    precision, and above 0 because a weight of `4p(1-p)` is only zero on a
+    game that was never in doubt for a single snap.
+    """
+    assert 0.0 < trial["effective_sample_share"] < 1.0
+
+
+def test_the_trial_decomposes_the_raw_penalty(trial):
+    """
+    The arithmetic the report turns on: whatever the weighting appears to cost
+    against the plain number is the sample it spends plus what it buys back by
+    choosing snaps. Those two have to add up, or the decomposition is a story
+    rather than a measurement.
+    """
+    for target in ("reliability", "all_scoring", "live_scoring"):
+        whole = trial["weighted_vs_unadjusted"][target]["difference"]
+        cost = trial["thinned_vs_unadjusted"][target]["difference"]
+        bought = trial["weighted_vs_thinned"][target]["difference"]
+        assert whole == pytest.approx(cost + bought, abs=1e-3)
+
+
+def test_the_trial_refuses_overlapping_seasons(tmp_path, tree):
+    with pytest.raises(ValueError, match="overlap"):
+        weighting(
+            league="nfl",
+            root=str(tree),
+            out=str(tmp_path / "docs"),
+            fit_seasons="2024-2025",
+            test_seasons="2025",
+        )

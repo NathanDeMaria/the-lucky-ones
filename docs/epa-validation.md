@@ -16,8 +16,9 @@ this page was typed by hand.
 
 The short version: the fit has real skill, it is well calibrated, it prices
 the field the way football does, and the metric built on it beats the box
-score. One of the two knobs is supported by the measurement and the other one
-isn't — and the most valuable thing this validation did was find a bug.
+score. Both knobs come out defensible — the bound on the measurement, the
+weighting on a price it turns out to be paying for precision rather than
+accuracy — and the most valuable thing this validation did was find a bug.
 
 ---
 
@@ -189,8 +190,10 @@ game's outcome, scaled to peak at 1.
 | | 0.67 | 0.55 |
 
 College keeps barely half its snaps' weight, against the NFL's two thirds.
-College has more blowouts and the metric says so — and that difference is
-exactly what makes the next section unable to settle this knob.
+College has more blowouts and the metric says so. On Kish's effective-sample
+measure — the one that says what the precision actually is — that's 70% and
+81%. [What that costs](#the-weighting-is-a-precision-cost-and-nothing-else) is
+measured below.
 
 ---
 
@@ -258,41 +261,104 @@ live scoring falling away below 2. So the measurement puts the useful range at
 roughly 3 to 5 and cannot separate values inside it; 5.0 is chosen from the
 football, where it sits on the ordinary ceiling of what one snap does.
 
-### The weighting is a choice, not a fitted value
+### The weighting is a precision cost, and nothing else
 
-| power (clip 5) | reliability | all scoring | live scoring |
+The sweep above compares a weighted number against an unweighted one, and
+those two are not computed over the same football. Down-weighting a blowout to
+near nothing is close to dropping it, so the weighted variant works from a
+smaller and differently-chosen pool of games. Two things move at once — **how
+snaps are combined**, which is what's being argued about, and **how many snaps
+survive**, which is an artifact of the argument. Either could produce the
+penalty. Read at face value the sweep says the weighting costs accuracy
+monotonically in the power; that reading is not available until the two are
+separated.
+
+`make weighting` separates them, two ways.
+
+**Equal effective sample.** A weighted mean carries the precision of a smaller
+unweighted one, and Kish's formula says how much smaller: `n_eff = (Σw)² /
+Σw²`. So the control is the *unweighted* number over a random thinning of the
+same snaps down to that same `n_eff` — same estimand as the full unweighted
+number, same precision as the weighted one. Thinning is Bernoulli, drawn fresh
+on every deal, so the control carries real sampling noise rather than a normal
+approximation to it.
+
+![NCAAFB weighting trial](weighting-trial-ncaafb.svg)
+
+![NFL weighting trial](weighting-trial-nfl.svg)
+
+| NCAAFB, 733 team-seasons | reliability | all scoring | live scoring |
 | --- | --- | --- | --- |
-| 0.25 | +0.003 (P 0.61) | +0.006 (P 0.83) | +0.001 (P 0.54) |
-| **1.0 (shipped)** | **−0.056 (P 0.00)** | **−0.020 (P 0.04)** | **−0.013 (P 0.17)** |
-| 2.0 | −0.103 (P 0.00) | −0.043 (P 0.00) | −0.025 (P 0.08) |
+| no weighting | 0.573 | 0.494 | 0.264 |
+| no weighting, thinned to the same precision | 0.496 | 0.459 | 0.245 |
+| **weighted, power 1** | **0.500** | **0.469** | **0.249** |
 
-Read at face value this says the weighting costs accuracy, monotonically in
-the power, on every target including the one built to favour it. In the NFL
-nothing is significant in either direction (power 1: −0.028 / −0.005 / −0.012,
-P ≈ 0.3).
+| NFL, 91 team-seasons | reliability | all scoring | live scoring |
+| --- | --- | --- | --- |
+| no weighting | 0.617 | 0.554 | 0.479 |
+| no weighting, thinned to the same precision | 0.560 | 0.528 | 0.456 |
+| **weighted, power 1** | **0.586** | **0.547** | **0.466** |
 
-**But this test cannot settle the weighting, and it is important to say so
-rather than bank the result.** Down-weighting discards blowouts, and blowouts
-are the mismatch games — so the weighted metric's two sets are built from a
-smaller and differently-selected pool of games than the unweighted one. The
-noise is not common to the two variants, and the effect is worst in exactly
-the league that has the statistical power: college schedules are wildly uneven,
-and college is where 733 of the 824 team-seasons are. The comparison isn't
-clean, and the NFL, whose schedule is balanced, has too few team-seasons to
-adjudicate a 0.03 difference.
+The whole penalty decomposes, and the decomposition is exact — what the
+weighting appears to cost is the sample it spends plus what it buys back by
+choosing snaps:
 
-So `DEFAULT_WEIGHT_POWER = 1.0` stays, and what this section establishes is its
-*price*, not its verdict: at power 1 you are working from 55% of a college
-season's snaps and 67% of an NFL one, and you should expect the number to be
-somewhat noisier than the unweighted one in exchange for describing
-competitive football by construction. Turning it off is
-`weight_power=0.0` at any call site.
+| NCAAFB | reliability | all scoring | live scoring |
+| --- | --- | --- | --- |
+| what it costs (weighted − unweighted) | −0.072 | −0.025 | −0.014 |
+| …the sample it spends (thinned − unweighted) | **−0.077** (P 0.00) | **−0.035** (P 0.00) | −0.019 (P 0.09) |
+| …what choosing snaps buys back (weighted − thinned) | +0.004 (P 0.56) | +0.009 (P 0.71) | +0.005 (P 0.60) |
 
-There is a test that would settle it, and it isn't this one: hold the *games*
-fixed across variants — score every variant on the same competitive subset —
-so that the weighting changes only how snaps are combined and not which games
-are in the sample. That is worth building before anyone changes the default in
-either direction.
+| NFL | reliability | all scoring | live scoring |
+| --- | --- | --- | --- |
+| what it costs | −0.031 | −0.007 | −0.013 |
+| …the sample it spends | −0.057 (P 0.14) | −0.026 (P 0.16) | −0.023 (P 0.23) |
+| …what choosing snaps buys back | +0.026 (P 0.66) | +0.019 (P 0.71) | +0.010 (P 0.58) |
+
+**Every point of the penalty is the sample.** The snaps the weighting chooses
+are, if anything, marginally better than a random draw of the same size — the
+selection term is positive in six of six cells, and nowhere near significance
+in any of them.
+
+**Fixed game set.** Separately, restrict every variant to the games that
+stayed in doubt, so the pool is identical by construction and the weighting can
+only re-combine snaps *within* games it was always going to keep. Thinned there
+too, because the weighting still spends sample inside those games:
+
+| weighted − thinned, same games | reliability | all scoring | live scoring |
+| --- | --- | --- | --- |
+| NCAAFB | +0.003 (P 0.52) | +0.018 (P 0.91) | −0.000 (P 0.48) |
+| NFL | −0.012 (P 0.41) | +0.001 (P 0.50) | −0.005 (P 0.47) |
+
+Level, in both leagues, on all three targets.
+
+### So what does the knob cost?
+
+Both controls agree, in both leagues: **the weighting is a pure precision cost
+with no measurable effect on accuracy.** The earlier caveat was right, and the
+raw sweep was measuring sample size.
+
+That makes the decision a clean one, with a price attached:
+
+| at power 1 | NFL | NCAAFB |
+| --- | --- | --- |
+| effective sample kept (Kish) | 81% | 70% |
+| what that costs in reliability | −0.031 | −0.072 |
+| what the weighting's snap choice buys | +0.026 | +0.004 |
+
+You pay about 20% of the NFL's effective sample and 30% of college's, and you
+get a number that describes competitive football by construction. Nothing here
+argues you shouldn't — it says the bill, and it says the number you get for it
+is no more biased than the one you'd get by throwing away the same amount of
+data at random.
+
+`DEFAULT_WEIGHT_POWER = 1.0` stays. `weight_power=0.0` at any call site buys
+the precision back, and now you know exactly how much of it there is.
+
+One thing this still doesn't test: whether the weighted number is a better
+*description* of a single game. "This team's 0.31 wasn't real, it was a 45-point
+rout" is true by construction and no correlation can argue with it. Every
+target here is predictive.
 
 ---
 
