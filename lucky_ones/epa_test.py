@@ -446,3 +446,75 @@ def test_epa_per_play_walks_the_game_itself():
     )
 
     assert walked == _epa(game, points, probabilities=probabilities)
+
+
+# --- the pair ----------------------------------------------------------
+
+
+def test_both_numbers_come_off_the_same_snaps():
+    """
+    Weighted and flat differ only in the weighting -- same plays, same bound,
+    one pass. Having both should cost nothing but two divisions.
+    """
+    game = _snaps(("home", 900, {}), ("home", 870, {}), ("home", 840, {}))
+
+    result = _epa(game, [0.0, 1.0, 3.0], probabilities=[0.5, 0.9, 0.9])
+
+    assert result.home_unweighted == pytest.approx(
+        float(np.mean([play.bounded for play in result.plays]))
+    )
+    # The weighting is the only difference, so a level game makes them agree.
+    level = _epa(game, [0.0, 1.0, 3.0], probabilities=[0.5, 0.5, 0.5])
+    assert level.home == pytest.approx(level.home_unweighted)
+
+
+def test_the_two_numbers_disagree_when_the_game_was_decided():
+    """
+    Which is the whole reason for reporting both: the weighted one describes
+    the live football, the flat one counts every snap.
+    """
+    game = _snaps(("home", 900, {}), ("home", 870, {}), ("home", 840, {}))
+
+    # A good live snap, then two garbage-time ones going the other way.
+    result = _epa(game, [0.0, 2.0, 0.0], probabilities=[0.5, 0.99, 0.99])
+
+    assert result.home is not None and result.home_unweighted is not None
+    assert result.home > result.home_unweighted
+
+
+def test_the_flat_number_survives_a_game_that_was_never_in_doubt():
+    """
+    The weighted one can run out of weight; this one can only run out of
+    plays. A rout still has a flat number, and it is the honest one to report
+    when the other is missing.
+    """
+    game = _snaps(("home", 900, {}), ("home", 870, {}))
+
+    result = _epa(game, [1.0, 2.0], probabilities=[1.0, 1.0])
+
+    assert result.home is None
+    assert result.home_unweighted is not None
+
+
+def test_the_unweighted_margin_is_the_one_to_sort_a_season_on():
+    game = _snaps(
+        ("home", 900, {}),
+        ("home", 870, {}),
+        ("away", 840, {}),
+        ("away", 810, {}),
+    )
+
+    result = _epa(game, [0.0, 1.0, 0.0, 1.0])
+
+    assert result.net_unweighted == pytest.approx(
+        result.home_unweighted - result.away_unweighted
+    )
+
+
+def test_an_offense_with_no_snaps_has_neither_number():
+    game = _snaps(("home", 900, {}), ("home", 870, {}))
+
+    result = _epa(game, [1.0, 1.0])
+
+    assert result.away is None and result.away_unweighted is None
+    assert result.net is None and result.net_unweighted is None

@@ -1053,21 +1053,106 @@
           "high": 0.3225
         }
       },
-      "power 0.25": {
+      "power 0.05": {
         "reliability": {
-          "r": 0.5699,
-          "low": 0.5118,
-          "high": 0.6268
+          "r": 0.5814,
+          "low": 0.5226,
+          "high": 0.637
         },
         "all_scoring": {
-          "r": 0.4945,
-          "low": 0.4358,
-          "high": 0.551
+          "r": 0.4959,
+          "low": 0.4374,
+          "high": 0.5533
         },
         "live_scoring": {
-          "r": 0.2618,
-          "low": 0.1989,
+          "r": 0.2636,
+          "low": 0.2018,
+          "high": 0.3228
+        }
+      },
+      "power 0.1": {
+        "reliability": {
+          "r": 0.5801,
+          "low": 0.5221,
+          "high": 0.6359
+        },
+        "all_scoring": {
+          "r": 0.4967,
+          "low": 0.4383,
+          "high": 0.5537
+        },
+        "live_scoring": {
+          "r": 0.2635,
+          "low": 0.2014,
           "high": 0.3231
+        }
+      },
+      "power 0.15": {
+        "reliability": {
+          "r": 0.5774,
+          "low": 0.5207,
+          "high": 0.6338
+        },
+        "all_scoring": {
+          "r": 0.4965,
+          "low": 0.4382,
+          "high": 0.5534
+        },
+        "live_scoring": {
+          "r": 0.2631,
+          "low": 0.2014,
+          "high": 0.3229
+        }
+      },
+      "power 0.2": {
+        "reliability": {
+          "r": 0.5739,
+          "low": 0.5164,
+          "high": 0.6312
+        },
+        "all_scoring": {
+          "r": 0.4957,
+          "low": 0.4372,
+          "high": 0.5519
+        },
+        "live_scoring": {
+          "r": 0.2626,
+          "low": 0.2002,
+          "high": 0.3229
+        }
+      },
+      "power 0.3": {
+        "reliability": {
+          "r": 0.5657,
+          "low": 0.5063,
+          "high": 0.6241
+        },
+        "all_scoring": {
+          "r": 0.493,
+          "low": 0.4343,
+          "high": 0.5492
+        },
+        "live_scoring": {
+          "r": 0.261,
+          "low": 0.1975,
+          "high": 0.3221
+        }
+      },
+      "power 0.4": {
+        "reliability": {
+          "r": 0.5569,
+          "low": 0.4961,
+          "high": 0.6142
+        },
+        "all_scoring": {
+          "r": 0.4897,
+          "low": 0.4306,
+          "high": 0.5446
+        },
+        "live_scoring": {
+          "r": 0.2591,
+          "low": 0.1955,
+          "high": 0.3203
         }
       },
       "power 0.5": {
@@ -1087,6 +1172,23 @@
           "high": 0.3195
         }
       },
+      "power 0.75": {
+        "reliability": {
+          "r": 0.5283,
+          "low": 0.4644,
+          "high": 0.5878
+        },
+        "all_scoring": {
+          "r": 0.4774,
+          "low": 0.4189,
+          "high": 0.5337
+        },
+        "live_scoring": {
+          "r": 0.2526,
+          "low": 0.1871,
+          "high": 0.315
+        }
+      },
       "power 1": {
         "reliability": {
           "r": 0.5115,
@@ -1102,6 +1204,23 @@
           "r": 0.2486,
           "low": 0.1826,
           "high": 0.3105
+        }
+      },
+      "power 1.5": {
+        "reliability": {
+          "r": 0.4847,
+          "low": 0.4186,
+          "high": 0.5481
+        },
+        "all_scoring": {
+          "r": 0.4565,
+          "low": 0.3975,
+          "high": 0.5121
+        },
+        "live_scoring": {
+          "r": 0.2419,
+          "low": 0.1764,
+          "high": 0.3037
         }
       },
       "power 2": {
@@ -1323,24 +1442,124 @@
           "p_better": 0.748
         }
       },
-      "power 0.25": {
+      "power 0.05": {
         "reliability": {
-          "difference": 0.0028,
-          "low": -0.019,
-          "high": 0.0243,
-          "p_better": 0.613
+          "difference": 0.0143,
+          "low": 0.0034,
+          "high": 0.0254,
+          "p_better": 0.995
         },
         "all_scoring": {
-          "difference": 0.0055,
-          "low": -0.0061,
-          "high": 0.0165,
-          "p_better": 0.829
+          "difference": 0.0069,
+          "low": 0.0011,
+          "high": 0.013,
+          "p_better": 0.991
         },
         "live_scoring": {
-          "difference": 0.0005,
+          "difference": 0.0023,
+          "low": -0.0041,
+          "high": 0.0085,
+          "p_better": 0.761
+        }
+      },
+      "power 0.1": {
+        "reliability": {
+          "difference": 0.013,
+          "low": -0.0013,
+          "high": 0.0271,
+          "p_better": 0.962
+        },
+        "all_scoring": {
+          "difference": 0.0077,
+          "low": 0.0002,
+          "high": 0.015,
+          "p_better": 0.98
+        },
+        "live_scoring": {
+          "difference": 0.0022,
+          "low": -0.0056,
+          "high": 0.0099,
+          "p_better": 0.707
+        }
+      },
+      "power 0.15": {
+        "reliability": {
+          "difference": 0.0103,
+          "low": -0.0065,
+          "high": 0.027,
+          "p_better": 0.89
+        },
+        "all_scoring": {
+          "difference": 0.0075,
+          "low": -0.0013,
+          "high": 0.0161,
+          "p_better": 0.951
+        },
+        "live_scoring": {
+          "difference": 0.0018,
+          "low": -0.0076,
+          "high": 0.0115,
+          "p_better": 0.651
+        }
+      },
+      "power 0.2": {
+        "reliability": {
+          "difference": 0.0068,
           "low": -0.0125,
-          "high": 0.0131,
-          "p_better": 0.537
+          "high": 0.026,
+          "p_better": 0.762
+        },
+        "all_scoring": {
+          "difference": 0.0067,
+          "low": -0.0036,
+          "high": 0.0164,
+          "p_better": 0.903
+        },
+        "live_scoring": {
+          "difference": 0.0013,
+          "low": -0.0102,
+          "high": 0.0123,
+          "p_better": 0.595
+        }
+      },
+      "power 0.3": {
+        "reliability": {
+          "difference": -0.0014,
+          "low": -0.0256,
+          "high": 0.0225,
+          "p_better": 0.464
+        },
+        "all_scoring": {
+          "difference": 0.004,
+          "low": -0.0086,
+          "high": 0.0161,
+          "p_better": 0.74
+        },
+        "live_scoring": {
+          "difference": -0.0003,
+          "low": -0.0147,
+          "high": 0.0138,
+          "p_better": 0.485
+        }
+      },
+      "power 0.4": {
+        "reliability": {
+          "difference": -0.0102,
+          "low": -0.0386,
+          "high": 0.0177,
+          "p_better": 0.237
+        },
+        "all_scoring": {
+          "difference": 0.0006,
+          "low": -0.0141,
+          "high": 0.0147,
+          "p_better": 0.545
+        },
+        "live_scoring": {
+          "difference": -0.0022,
+          "low": -0.0195,
+          "high": 0.0145,
+          "p_better": 0.411
         }
       },
       "power 0.5": {
@@ -1363,6 +1582,26 @@
           "p_better": 0.35
         }
       },
+      "power 0.75": {
+        "reliability": {
+          "difference": -0.0388,
+          "low": -0.0792,
+          "high": -0.0018,
+          "p_better": 0.023
+        },
+        "all_scoring": {
+          "difference": -0.0116,
+          "low": -0.031,
+          "high": 0.008,
+          "p_better": 0.122
+        },
+        "live_scoring": {
+          "difference": -0.0087,
+          "low": -0.0315,
+          "high": 0.0144,
+          "p_better": 0.243
+        }
+      },
       "power 1": {
         "reliability": {
           "difference": -0.0557,
@@ -1381,6 +1620,26 @@
           "low": -0.0381,
           "high": 0.013,
           "p_better": 0.173
+        }
+      },
+      "power 1.5": {
+        "reliability": {
+          "difference": -0.0824,
+          "low": -0.1361,
+          "high": -0.0334,
+          "p_better": 0.0
+        },
+        "all_scoring": {
+          "difference": -0.0325,
+          "low": -0.0578,
+          "high": -0.0064,
+          "p_better": 0.005
+        },
+        "live_scoring": {
+          "difference": -0.0194,
+          "low": -0.0484,
+          "high": 0.0111,
+          "p_better": 0.113
         }
       },
       "power 2": {
