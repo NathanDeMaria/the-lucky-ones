@@ -818,10 +818,11 @@ def epa(
 
     The eyeball check on an expected points release, and the same call a
     backend makes: `make epa ARGS="401671789 --week 3"`. Both offenses' number
-    comes out, with the effective sample behind each -- and `plays` carries
-    every snap with what it was worth, what the bound did to it and how much
-    the game was still in doubt when it happened, so "which plays is this
-    number made of" is a sort rather than a second run.
+    comes out twice -- weighted, which describes the live game, and flat, which
+    is the one to rank a season on -- with the effective sample behind each.
+    `plays` carries every snap with what it was worth, what the bound did to it
+    and how much the game was still in doubt when it happened, so "which plays
+    is this number made of" is a sort rather than a second run.
 
     `--clip inf --weight_power 0` prints the plain unweighted mean of raw EPA,
     which is the number to compare against when you want to see what the two
@@ -852,6 +853,11 @@ def epa(
                     "home": result.home,
                     "away": result.away,
                     "net": result.net,
+                    # The pair: weighted describes the live game, flat is the
+                    # one to rank a season on. See `lucky_ones.epa.EpaPerPlay`.
+                    "home_unweighted": result.home_unweighted,
+                    "away_unweighted": result.away_unweighted,
+                    "net_unweighted": result.net_unweighted,
                     "home_plays": result.home_plays,
                     "away_plays": result.away_plays,
                     "home_weight": round(result.home_weight, 3),

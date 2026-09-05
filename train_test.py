@@ -332,6 +332,15 @@ def test_epa_prints_a_number_per_offense_and_the_plays_behind_it(
     result = payload["epa_per_play"]
     assert result["home_plays"] + result["away_plays"] == len(payload["plays"])
     assert result["net"] == pytest.approx(result["home"] - result["away"])
+    # Both numbers, because they answer different questions -- see
+    # `lucky_ones.epa.EpaPerPlay`.
+    assert result["net_unweighted"] == pytest.approx(
+        result["home_unweighted"] - result["away_unweighted"]
+    )
+    assert result["home_unweighted"] == pytest.approx(
+        sum(play["bounded"] for play in payload["plays"] if play["offense_is_home"])
+        / result["home_plays"]
+    )
     # The effective sample is what the average actually covers, and it can
     # only be smaller than the play count.
     assert 0 < result["home_weight"] <= result["home_plays"]
