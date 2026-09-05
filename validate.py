@@ -74,7 +74,11 @@ TEST_SEASONS = range(2023, 2026)
 WEEKS = range(0, 21)
 INFINITE = float("inf")
 
-CLIPS = (1.0, 2.0, 3.0, 4.0, 5.0, 7.0, INFINITE)
+# Finely spaced from 2 to 5, where the predictive targets turn over. Below 2
+# the bound starts destroying signal rather than noise -- at 1 it takes five
+# points off the scoring correlation -- so the optimum is bracketed, and the
+# question is only where inside it.
+CLIPS = (1.0, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, INFINITE)
 # Finely spaced below 0.5, because that is where an interior optimum would
 # sit if there is one: a little down-weighting could plausibly improve the
 # estimate -- garbage-time snaps are different football -- before the sample
