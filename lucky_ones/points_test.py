@@ -155,6 +155,195 @@ def test_a_correction_resets_what_the_next_jump_is_measured_from():
     assert (event.play_id, event.points) == ("p3", 3.0)
 
 
+def test_a_jump_the_feed_put_on_the_next_row_belongs_to_the_flagged_snap():
+    """
+    The old feed's commonest displacement: the touchdown row is flagged
+    and shows nothing, and the kickoff after it carries the seven. Both
+    witnesses are there, a row apart, so the score is the touchdown's.
+    """
+    game = _game(
+        [
+            _drive(start=1),
+            _drive(start=2, scoring_play=True),
+            _drive(start=3, home=7, play_type="Kickoff", down=None),
+            _drive(start=4, home=7),
+        ]
+    )
+
+    (event,) = score_events(list(game.plays))
+
+    assert (event.play_id, event.points, event.home_scored) == ("p2", 7.0, True)
+
+
+def test_a_flagged_row_only_owns_a_jump_within_reach():
+    """
+    The other thing a flagged row with no jump can be is a touchdown called
+    back. A jump five rows later is not its.
+    """
+    game = _game(
+        [
+            _drive(start=1, scoring_play=True),
+            _drive(start=2),
+            _drive(start=3),
+            _drive(start=4),
+            _drive(start=5),
+            _drive(start=6, home=7),
+        ]
+    )
+
+    assert score_events(list(game.plays)) == []
+
+
+def test_a_correction_between_a_flag_and_its_jump_forfeits_the_pairing():
+    game = _game(
+        [
+            _drive(start=1, home=3, scoring_play=True),
+            _drive(start=2, home=3, scoring_play=True),
+            _drive(start=3, home=0),
+            _drive(start=4, home=7),
+        ]
+    )
+
+    assert [e.play_id for e in score_events(list(game.plays))] == ["p1"]
+
+
+def test_a_jump_the_feed_put_a_row_early_belongs_to_the_flagged_snap_after_it():
+    """
+    The mirror displacement: the columns move on the snap before the
+    touchdown, and the flag arrives on the touchdown itself.
+    """
+    game = _game(
+        [
+            _drive(start=1),
+            _drive(start=2, home=7),
+            _drive(start=3, home=7, scoring_play=True),
+            _drive(start=4, home=7, offense="away"),
+        ]
+    )
+
+    (event,) = score_events(list(game.plays))
+
+    assert (event.play_id, event.points, event.home_scored) == ("p3", 7.0, True)
+
+
+def test_a_correction_on_one_side_does_not_hide_a_score_on_the_other():
+    """
+    One row, both columns moving: the away side corrected down, the home
+    side up by seven. That is one score, the home team's, on this row.
+    """
+    game = _game(
+        [
+            _drive(start=1, away=7),
+            _drive(start=2, home=7, away=0, scoring_play=True),
+        ]
+    )
+
+    (event,) = score_events(list(game.plays))
+
+    assert (event.play_id, event.points, event.home_scored) == ("p2", 7.0, True)
+
+
+def test_a_score_on_the_try_is_credited_to_the_snap_before_it():
+    """
+    Before 2014 about one touchdown in ten is missing from the feed: the
+    drive's last recorded snap is an ordinary one, and the try carries the
+    flag and all seven points. A try isn't a snap, so the points go to the
+    last snap that is, and the drive adds up.
+    """
+    game = _game(
+        [
+            _drive(start=1),
+            _drive(start=2),
+            _drive(
+                start=3,
+                home=7,
+                scoring_play=True,
+                play_type="Extra Point Good",
+                down=-1,
+            ),
+            _drive(start=4, home=7, offense="away"),
+        ]
+    )
+
+    (event,) = score_events(list(game.plays))
+
+    assert (event.play_id, event.points, event.home_scored) == ("p2", 7.0, True)
+
+
+def test_a_missing_pick_six_lands_on_the_snap_that_threw_it():
+    """
+    The same recovery when the missing play was the defense's. The points
+    are signed by which side of the scoreboard moved, so the offense at
+    the snap they land on reads them as minus seven -- as `lucky_ones.epa`
+    would read a pick-six the feed did record.
+    """
+    game = _game(
+        [
+            _drive(start=1),
+            _drive(
+                start=2,
+                away=7,
+                scoring_play=True,
+                play_type="Extra Point Good",
+                down=-1,
+                offense="away",
+            ),
+        ]
+    )
+
+    assert scoring_plays(list(game.plays)) == {"p1": -7.0}
+
+
+def test_a_score_on_a_kickoff_stays_on_the_kickoff():
+    """
+    A kickoff return for a touchdown is scored where it happened in every
+    season, and the snap before it belongs to the team that just got scored
+    on; crediting it there would hand the points to the wrong side.
+    """
+    game = _game(
+        [
+            _drive(start=1, home=7, scoring_play=True),
+            _drive(
+                start=2,
+                home=7,
+                away=7,
+                scoring_play=True,
+                play_type="Kickoff",
+                down=None,
+            ),
+        ]
+    )
+
+    events = score_events(list(game.plays))
+
+    assert [(e.play_id, e.home_scored) for e in events] == [("p1", True), ("p2", False)]
+
+
+def test_the_jitter_does_not_score_a_touchdown_twice():
+    """
+    Points on the touchdown, off again on the next row, back on the try:
+    the second reading lands on the same snap the first did, and is one
+    score.
+    """
+    game = _game(
+        [
+            _drive(start=1, home=7, scoring_play=True),
+            _drive(start=2, home=0, play_type="Timeout"),
+            _drive(
+                start=3,
+                home=7,
+                scoring_play=True,
+                play_type="Extra Point Good",
+                down=-1,
+            ),
+        ]
+    )
+
+    (event,) = score_events(list(game.plays))
+
+    assert (event.play_id, event.points) == ("p1", 7.0)
+
+
 def test_scoring_plays_are_signed_towards_the_home_team():
     game = _game(
         [

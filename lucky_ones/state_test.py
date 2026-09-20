@@ -7,6 +7,7 @@ from .state import (
     REGULATION_SECONDS,
     final_outcome,
     half_of,
+    is_a_down,
     is_scrimmage_play,
     iter_states,
 )
@@ -201,6 +202,9 @@ def test_a_timeout_is_not_a_snap():
         "End Period",
         "End of Game",
         "Coin Toss",
+        "Extra Point Good",
+        "Extra Point Missed",
+        "2pt Conversion",
     ],
 )
 def test_the_administrative_rows_are_all_refused(play_type):
@@ -218,6 +222,36 @@ def test_a_play_run_from_scrimmage_is_kept(play_type):
     isn't evidence of a timeout.
     """
     assert is_scrimmage_play(play_type)
+
+
+def test_an_old_feed_try_with_a_down_of_minus_one_is_not_a_snap():
+    """
+    Before 2014 the try carries every column a snap does, with the down
+    written as -1 rather than left null. A -1 passes a null check, and for
+    eight seasons every try was priced as first and goal from the 3.
+    """
+    game = _game(
+        [
+            make_play(play_id="p1", play_number=1, clock_seconds=900),
+            make_play(
+                play_id="p2",
+                play_number=2,
+                clock_seconds=900,
+                play_type="Rush",
+                down=-1,
+                distance=-1,
+                yardline=97,
+            ),
+            make_play(play_id="p3", play_number=3, clock_seconds=880),
+        ]
+    )
+
+    assert [state.play_id for state in iter_states(game)] == ["p1", "p3"]
+
+
+@pytest.mark.parametrize("down", [None, -1, 0, 5])
+def test_a_down_a_snap_cannot_be_taken_on(down):
+    assert not is_a_down(down)
 
 
 def test_a_college_kickoff_that_carries_a_down_is_still_a_kickoff():

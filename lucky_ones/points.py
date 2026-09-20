@@ -47,7 +47,7 @@ import numpy as np
 from .features import EP_FEATURE_NAMES, ep_feature_matrix
 from .game import GamePlays
 from .plays import Play
-from .state import GameState, half_of, iter_states
+from .state import GameState, half_of, is_a_down, is_scrimmage_play, is_try, iter_states
 
 TOUCHDOWN_POINTS = 7.0
 """
@@ -78,6 +78,18 @@ _POINTS_BY_CHANGE: Mapping[int, float] = {
     8: TOUCHDOWN_POINTS,
 }
 
+# How many rows after a flagged play its jump may arrive and still be its.
+# Measured on NCAAFB 2010 and 2013: of the displaced jumps that follow a
+# flagged row, 27 of 31 land on the very next row and 3 more within three;
+# past that the pairings are as rare as coincidence would make them.
+_PENDING_REACH = 3
+
+# The other direction is looser: a jump that arrives *early* can sit on the
+# timeout or the incompletion half a dozen rows before the play the feed
+# flags, so a held jump waits longer for its flag than a flag waits for its
+# jump.
+_EARLY_REACH = 6
+
 
 FIRST_LEGIBLE_SEASON = 2014
 """
@@ -85,11 +97,17 @@ The first season whose scoring can be placed on the play that produced it, in
 both leagues.
 
 Not a rule about football -- a fact about the feed, and the one that decides
-what `train.py train_ep` should be pointed at. Before it, roughly one score in
-ten can't be witnessed twice (see `score_events`), which leaves a tenth of the
-labels attached to the wrong drive. After it the two witnesses agree on
-essentially everything: the scoring the columns claim lands within half a
-point of the real final scores, in both leagues, every season.
+what `train.py train_ep` should be pointed at. Before it the feed's two
+witnesses to a score -- the columns and the flag -- disagree on about one
+score in six: the jump lands on the try or the kickoff, or a row early, or
+the touchdown play is missing altogether and only its try is there.
+`score_events` pairs most of that back up, and what it can't place it
+leaves off: read through it, a game's witnessed scoring is within two points
+of the final for 70-83% of NCAAFB games in 2010-2013, against 91-97% from
+2014 on. That is enough to *score* those seasons -- an EPA index over them
+reads on the same scale as the later ones -- and not enough to train on
+them, where a label attached to the wrong drive is a label, so this is
+still where the expected points fit starts.
 
 It is also where NCAAFB's `is_turnover` stops being uniformly false (see
 `luck._changed_possession`), which is a different column with the same
@@ -198,21 +216,79 @@ def score_events(plays: Sequence[Play]) -> list[ScoreEvent]:
     both leagues, and to within half a point from 2014 on.
 
     It is the same shape of fix as `luck._changed_possession`, and it errs the
-    same way on purpose. What is left in the old seasons is a *false
-    negative* -- roughly one score in ten before 2014, where the flag and the
-    jump landed on different rows and neither witness can place the points --
-    and a score this can't find leaves its snaps labelled with whatever scores
-    next. That is a quieter error than inventing a touchdown, which is what
-    the alternative does. `train.py train_ep` prints the class shares for the
-    same reason: a feed that stopped flagging would show up there as a season
-    that never scored.
+    same way on purpose. What is left is a *false negative* -- a score neither
+    witness can place -- and a score this can't find leaves its snaps
+    labelled with whatever scores next. That is a quieter error than
+    inventing a touchdown, which is what the alternative does. `train.py
+    train_ep` prints the class shares for the same reason: a feed that
+    stopped flagging would show up there as a season that never scored.
+
+    **When the two witnesses are a row apart.** Before 2014, about one score
+    in seven has the flag on the touchdown and the jump on the row after it
+    -- the try, or the kickoff -- and read strictly that is a flagged play
+    that didn't score followed by a score nobody flagged. Both halves of it
+    are visible, so this pairs them: a flagged row whose columns didn't move
+    is held as *pending*, and a jump within the next few rows of the same
+    period is credited to it. The reach is short (`_PENDING_REACH`) and a
+    correction in between forfeits it, because the other thing a flagged
+    row without a jump can be is a touchdown called back, and a jitter
+    landing on that would invent the score the flag was wrong about.
+
+    **The jitter itself is handled by remembering it.** The columns take a
+    score off and put it back, and the row they put it back on is not
+    always the row they took it from: a touchdown witnessed on its own row
+    comes off on the next snap and returns on the try, or on the snap after
+    that. A withdrawal is held, and the same points returning to the same
+    side within reach of it -- with that score already an event -- is the
+    jitter closing, not a second touchdown. Without this, every rule below
+    that places a score on a row would place the returning copy somewhere.
+
+    The displacement runs the other way too, less often: the columns move
+    on a row *before* the touchdown -- the snap before it, a timeout, the
+    kickoff -- and the flag arrives on the touchdown. An unflagged jump is
+    held the same way, and a flagged row without a jump within reach of it
+    (`_EARLY_REACH`, the longer of the two) is the play it belongs to.
+    Unclaimed, it is the jitter and is dropped as before.
+
+    **When the touchdown isn't in the feed at all.** The larger case before
+    2014, about one touchdown in ten: the row before the try is an ordinary
+    snap from wherever the drive had got to, the touchdown play is simply
+    absent, and the try carries the flag and the whole 7. A try is not a
+    snap (`state.NOT_A_SNAP`), so a score credited to it is a score no
+    state carries, and `lucky_ones.epa` would price the drive as ending at
+    the other team's first snap -- minus seven and change against the
+    offense that just scored. So a score on a try is credited to the last
+    snap within reach: the drive still adds up to the points it scored
+    minus what its first snap was worth, and only the play count is one
+    short. That holds when the missing play was a pick-six, too -- the
+    points are signed to the side of the scoreboard that moved, and
+    `lucky_ones.epa` reads them against whoever had the ball at the snap
+    they land on, which is the offense that threw it. Only the try gets
+    this. A kickoff returned for a touchdown is scored on the kickoff row
+    in every season, and the snap before it belongs to the team that just
+    got scored on.
     """
     events: list[ScoreEvent] = []
     home, away = 0, 0
     period = 1
+    # A flagged row whose score columns didn't move, as (index, play,
+    # period), waiting for the jump the feed put on a later row.
+    pending: tuple[int, Play, int] | None = None
+    # The mirror image: a jump on an unflagged snap, as (index, (home_scored,
+    # points), period), waiting for the flagged row the feed put it before.
+    orphan: tuple[int, tuple[bool, float], int] | None = None
+    # A score the columns took back, in the same shape. The jitter puts it
+    # back within a row or two, usually somewhere else -- on the try, on the
+    # next snap -- and that is the same score returning, not a new one.
+    withdrawn: tuple[int, tuple[bool, float], int] | None = None
+    # The most recent scrimmage snap, the same way -- where a score the feed
+    # put on a try is credited when no flagged row is waiting for it.
+    last_snap: tuple[int, Play, int] | None = None
     for index, play in enumerate(plays):
         if play.period is not None:
             period = play.period
+        if is_scrimmage_play(play.play_type) and is_a_down(play.down):
+            last_snap = (index, play, period)
         if play.home_score is None or play.away_score is None:
             continue
         change_home, change_away = play.home_score - home, play.away_score - away
@@ -220,26 +296,105 @@ def score_events(plays: Sequence[Play]) -> list[ScoreEvent]:
         # backwards: a correction is the feed telling us the score, and the
         # next jump has to be measured from the corrected one.
         home, away = play.home_score, play.away_score
-        if not play.scoring_play:
-            continue
-        # Both sides moving on one play is a feed that skipped a row, not a
-        # play; there's no honest way to say which score came first.
+        if change_home < 0 or change_away < 0:
+            # A correction between a flag and its jump means the jump is
+            # measured from a number the feed withdrew; nothing after it can
+            # be paired with confidence.
+            pending = orphan = None
+            taken_back = _POINTS_BY_CHANGE.get(-min(change_home, change_away))
+            if taken_back is not None:
+                withdrawn = (index, (change_home < 0, taken_back), period)
+        # Both sides moving up on one play is a feed that skipped a row, not
+        # a play; there's no honest way to say which score came first. One
+        # side corrected down while the other went up is one score, and the
+        # side that went up is the one that scored.
         if change_home > 0 and change_away > 0:
             continue
+        if change_home <= 0 and change_away <= 0:
+            if play.scoring_play and change_home == 0 and change_away == 0:
+                # Flagged, and the columns didn't move: either the jump
+                # arrived early and is held, or it is still to come.
+                if (early := _owner(orphan, index, period, _EARLY_REACH)) is not None:
+                    home_scored, points = early[1]
+                    orphan = None
+                    events.append(
+                        ScoreEvent(
+                            play_id=play.play_id,
+                            play_index=index,
+                            half=half_of(period),
+                            home_scored=home_scored,
+                            points=points,
+                        )
+                    )
+                else:
+                    pending = (index, play, period)
+            continue
         home_scored = change_home > 0
-        points = _POINTS_BY_CHANGE.get(change_home if home_scored else change_away)
+        change = change_home if home_scored else change_away
+        points = _POINTS_BY_CHANGE.get(change)
         if points is None:
+            # A change of 1 is the try, and it neither scores nor disturbs a
+            # touchdown still waiting for its jump; anything else unlisted
+            # is the feed being wrong about a score.
+            continue
+        if (
+            (returning := _owner(withdrawn, index, period)) is not None
+            and returning[1] == (home_scored, points)
+            and any(
+                (event.home_scored, event.points) == (home_scored, points)
+                and index - event.play_index <= 2 * _PENDING_REACH
+                for event in events[-2:]
+            )
+        ):
+            # The withdrawn score, back on the board: already an event.
+            withdrawn = None
+            continue
+        scored_at = index, play
+        if not play.scoring_play or not is_scrimmage_play(play.play_type):
+            # The jump is on a row that can't have scored it: unflagged, or
+            # not a snap. It belongs to the flagged snap just before it if
+            # one is in reach; failing that, a flagged try's points belong
+            # to the possession before it. Anything else is an unflagged
+            # jump -- the jitter the flag exists to refuse -- or a score on
+            # a kickoff, which is where the feed says it happened.
+            if (owner := _owner(pending, index, period)) is not None:
+                scored_at = owner
+            elif (
+                play.scoring_play
+                and is_try(play.play_type)
+                and (owner := _owner(last_snap, index, period)) is not None
+            ):
+                scored_at = owner
+            elif not play.scoring_play:
+                orphan = (index, (home_scored, points), period)
+                continue
+        pending = orphan = None
+        if events and events[-1].play_index == scored_at[0]:
+            # The jitter's second copy: the columns withdrew this score and
+            # put it back on a later row, and both readings landed here.
             continue
         events.append(
             ScoreEvent(
-                play_id=play.play_id,
-                play_index=index,
+                play_id=scored_at[1].play_id,
+                play_index=scored_at[0],
                 half=half_of(period),
                 home_scored=home_scored,
                 points=points,
             )
         )
     return events
+
+
+def _owner[T](
+    held: tuple[int, T, int] | None,
+    index: int,
+    period: int,
+    reach: int = _PENDING_REACH,
+) -> tuple[int, T] | None:
+    """The held row, if it is close enough behind `index` to be paired with it."""
+    if held is None or held[2] != period or index - held[0] > reach:
+        return None
+    return held[0], held[1]
 
 
 def scoring_plays(plays: Sequence[Play]) -> dict[str, float]:

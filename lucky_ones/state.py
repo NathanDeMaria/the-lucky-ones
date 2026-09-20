@@ -21,7 +21,7 @@ are already pre-snap.
 """
 
 from logging import getLogger
-from typing import Iterator, NamedTuple
+from typing import Iterator, NamedTuple, TypeIs
 
 from .game import GamePlays
 from .plays import Play
@@ -152,11 +152,20 @@ class GameOutcome(NamedTuple):
         return self.home_score == self.away_score
 
 
+TRY_MARKERS: tuple[str, ...] = ("extra point", "2pt conversion", "two-point conversion")
+"""
+Play types that are the try after a touchdown, matched as `NOT_A_SNAP` is.
+Named on their own because `points.score_events` needs to know a try from
+the other non-snaps: a score the feed puts on a try belongs to the
+possession before it, and one it puts on a kickoff does not.
+"""
+
 NOT_A_SNAP: tuple[str, ...] = (
     "timeout",
     "two-minute warning",
     "kickoff",
     "coin toss",
+    *TRY_MARKERS,
 )
 """
 Play types that aren't a scrimmage play, matched as substrings of a lowered
@@ -176,6 +185,10 @@ What they actually are:
   together were 5.5% of that league's states.
 - **The coin toss**, and (through the `end ` prefix below) `End Period`,
   `End of Game`, `End of Regulation`.
+- **The try** -- `Extra Point Good`, `Extra Point Missed`, `2pt Conversion`.
+  From 2014 on it has no down and the column test drops it; before 2014 it
+  carries a down of -1 (see `_to_state`), and this is the second guard for
+  the seasons where that convention is not quite uniform.
 
 Together they were 7.1% of NFL states and 9.5% of NCAAFB ones, and they are
 not harmless padding. They break both models in different ways. Expected
@@ -186,10 +199,39 @@ the fit 1.6 points wrong on the whole 33-to-37 slice of the field. For EPA it
 is simpler and just as wrong -- a timeout is not a play, and it has no
 business in a per-play denominator.
 
+The try was the worst of them, and it hid for a while because it only
+happens in the seasons before `points.FIRST_LEGIBLE_SEASON`. Priced as a
+snap, a try is a first and goal from the 3 -- about +6 expected points --
+that ends, after the kickoff is skipped, at the other team's first snap or
+at nothing: minus six for the offense, six times a game. In NCAAFB 2006-2013
+that put every offense 0.12 points per play below where the same football
+reads from 2014 on, and cut the spread of team-game averages by a third.
+
 A null `play_type` is *kept*. Absence of evidence isn't evidence of a
 timeout, and a real snap whose type didn't parse should be modelled rather
 than dropped.
 """
+
+FIRST_DOWN, LAST_DOWN = 1, 4
+
+
+def is_a_down(down: int | None) -> TypeIs[int]:
+    """
+    Whether `down` is one a snap can be taken on.
+
+    None is the feed's usual way of saying "no down" -- a kickoff, a try, the
+    end of a period. Before 2014 it said the same thing with -1, on a row
+    that otherwise carries every column a snap does, and a -1 passes a
+    null-check. A down outside 1 to 4 isn't a snap under either convention.
+    """
+    return down is not None and FIRST_DOWN <= down <= LAST_DOWN
+
+
+def is_try(play_type: str | None) -> bool:
+    """Whether `play_type` names the try after a touchdown."""
+    return play_type is not None and any(
+        marker in play_type.lower() for marker in TRY_MARKERS
+    )
 
 
 def is_scrimmage_play(play_type: str | None) -> bool:
@@ -216,9 +258,10 @@ def iter_states(game: GamePlays) -> Iterator[GameState]:
     Plays that aren't a snap are skipped rather than filled in, and it takes
     two tests to find them all:
 
-    - **The columns.** Extra points and most kickoffs have no down, END
-      QUARTER and END GAME have no possession team, and a play missing its
-      clock has no place on the time axis.
+    - **The columns.** Extra points and most kickoffs have no down -- null
+      from 2014, -1 before it, and `is_a_down` refuses both -- END QUARTER
+      and END GAME have no possession team, and a play missing its clock
+      has no place on the time axis.
     - **The type.** `NOT_A_SNAP` is the rest, and it is the half that isn't
       obvious: a timeout arrives with every column a snap has, so nothing but
       `play_type` says it wasn't one.
@@ -270,7 +313,7 @@ def _to_state(
     if (
         play.period is None
         or play.clock_seconds is None
-        or play.down is None
+        or not is_a_down(play.down)
         or play.distance is None
         or play.yardline is None
         or play.offense_team_id is None
