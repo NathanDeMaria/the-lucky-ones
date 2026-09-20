@@ -237,10 +237,17 @@ def test_an_ordinary_play_is_left_exactly_alone():
 # --- The weighting -----------------------------------------------------
 
 
-def test_a_coin_flip_game_weighs_one_and_a_decided_one_weighs_nothing():
+def test_a_coin_flip_game_weighs_one_and_a_decided_one_about_a_half():
+    """
+    The default is the rating exponent -- see `DEFAULT_WEIGHT_POWER` -- under
+    which a decided snap keeps about half its weight rather than none. The
+    descriptive exponent is what makes a decided snap weigh nothing.
+    """
     assert competitiveness(0.5) == pytest.approx(1.0)
-    assert competitiveness(0.9) == pytest.approx(0.1296)
-    assert competitiveness(0.99) == pytest.approx(0.0016, abs=1e-4)
+    assert competitiveness(0.9) == pytest.approx(0.6)
+    assert competitiveness(0.99) == pytest.approx(0.199, abs=1e-3)
+    assert competitiveness(0.9, power=2.0) == pytest.approx(0.1296)
+    assert competitiveness(0.99, power=2.0) == pytest.approx(0.0016, abs=1e-4)
     # Symmetric: it is about the game being in doubt, not about who is ahead.
     assert competitiveness(0.2) == pytest.approx(competitiveness(0.8))
 
@@ -263,18 +270,23 @@ def test_the_power_turns_the_weighting_off():
     assert competitiveness(0.0, power=0.0) == 1.0
 
 
-def test_a_blowout_snap_barely_counts():
+def test_a_blowout_snap_barely_counts_at_the_descriptive_power():
     """
-    The whole reason for the weighting: a garbage-time drive can't outvote
-    the football played while the game was live.
+    The reason the descriptive weighting exists: a garbage-time drive can't
+    outvote the football played while the game was live. At the rating
+    default the same snaps keep about a fifth of their weight, on purpose.
     """
     game = _snaps(("home", 900, {}), ("home", 870, {}), ("home", 840, {}))
 
-    result = _epa(game, [0.0, 0.0, 0.0], probabilities=[0.5, 0.999, 0.999])
+    described = _epa(
+        game, [0.0, 0.0, 0.0], probabilities=[0.5, 0.999, 0.999], weight_power=2.0
+    )
+    rated = _epa(game, [0.0, 0.0, 0.0], probabilities=[0.5, 0.999, 0.999])
 
     # Two enormous garbage-time plays against one ordinary live one, and the
     # live one still owns the number.
-    assert result.plays[0].weight > 50 * result.plays[1].weight
+    assert described.plays[0].weight > 50 * described.plays[1].weight
+    assert rated.plays[1].weight == pytest.approx(0.063, abs=1e-3)
 
 
 def test_a_kneel_down_needs_no_naming():
@@ -372,10 +384,12 @@ def test_the_effective_sample_is_reported():
 
     live = _epa(game, [1.0, 1.0], probabilities=[0.5, 0.5])
     rout = _epa(game, [1.0, 1.0], probabilities=[0.99, 0.99])
+    described = _epa(game, [1.0, 1.0], probabilities=[0.99, 0.99], weight_power=2.0)
 
     assert live.home_plays == rout.home_plays == 2
     assert live.home_weight == pytest.approx(2.0)
-    assert rout.home_weight < 0.1
+    assert rout.home_weight == pytest.approx(0.4, abs=0.01)
+    assert described.home_weight < 0.1
 
 
 def test_a_team_with_no_snaps_has_no_number():

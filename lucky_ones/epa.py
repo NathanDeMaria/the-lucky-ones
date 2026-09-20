@@ -93,17 +93,41 @@ plays. The unbounded per-play numbers stay on `PlayEPA.epa` for anyone who
 wants them.
 """
 
-DEFAULT_WEIGHT_POWER = 2.0
+DEFAULT_WEIGHT_POWER = 0.5
 """
 The exponent on `competitiveness`. 0.0 turns the weighting off.
 
-Measured, on the question the weighting exists for. Take the unweighted mean
-over only the snaps where the game was in doubt -- 0.2 to 0.8 win probability
--- as what a team did while it mattered, and ask how close a whole-game number
-lands to it. Garbage time moves that number by 0.11 on an average team-game
-and 0.26 at the ninetieth percentile, which against a good-to-bad offense
-spread of a few tenths is not a rounding error. Sweeping the power over 1,321
-NFL and 6,484 NCAAFB held-out team-games:
+Two questions have been asked of this number and they disagree, so it is
+worth saying which one the default answers.
+
+**Rating.** Averaged across a season and used to say how good a team is --
+which is what cassandra does with the number, and the use `EpaPerPlay` says
+the unweighted reading is for -- the weighting is measured against how well
+a team's average predicts its *next* game. Snaps from a decided game carry
+about seven tenths of the signal of a live one, not none: on NCAAFB
+2014-2025, the correlation of a team's prior-weeks EPA with its next margin
+is 0.11-0.12 for snaps at win probability under 0.1 or over 0.9 against
+0.16-0.17 in the middle, and a quarter of all college snaps sit past 0.05 or
+0.95. So the weight a decided snap deserves is around a half, which is what
+`4p(1-p)` to the 0.5 gives at p = 0.95, and every steeper exponent trades
+sample for nothing:
+
+    power   split-half reliability   next-margin R^2 (walk-forward rating)
+      0.0            0.600                    0.336
+      0.5            0.600                    0.334
+      1.0            0.577                    0.321
+      2.0            0.524                    0.294
+
+The league mean also rises with the offense's win probability -- from -0.09
+per play at p = 0.03 to +0.07 at p = 0.97 -- and that is selection, not
+bias: the team that is winning is the better team and keeps moving the
+ball. Subtracting the state's expectation instead of weighting removes team
+signal (0.312), so a level correction is the wrong shape too.
+
+**Description.** Asked instead how close a whole-game number lands to what
+a team did while the game was in doubt (the unweighted mean over snaps at
+0.2 to 0.8 win probability), the answer is 2.0. Sweeping the power over
+1,321 NFL and 6,484 NCAAFB held-out team-games:
 
     power   distance   gap closed   sample kept
       0.0      0.113           --          100%
@@ -112,25 +136,16 @@ NFL and 6,484 NCAAFB held-out team-games:
       3.0      0.057          49%           69%
       5.0      0.081          28%           60%
 
-Both leagues trace that curve to within a point or two of each other, and it
-has a floor at 2 -- which is the part that makes this a measurement rather
-than arithmetic. `4p(1-p)` fades *inside* the live window too (a snap at 0.2
-carries 0.64), so a large enough power stops averaging the live game and
-starts averaging the coin-flip snaps inside it. By 5 it is worse than 0.5.
-`validate.py weighting` is the measurement.
+Both leagues trace that curve, and it has a floor at 2: `4p(1-p)` fades
+inside the live window too, so a large enough power stops averaging the
+live game and starts averaging the coin-flip snaps inside it. That was the
+default before this one. `validate.py weighting` is that measurement, and
+a caller describing a single game rather than rating a team should pass 2.0.
 
-What that costs is precision and, as far as anything here can measure,
-precision only: held at a fixed effective sample the weighting's snaps are no
-worse than a random draw of the same size (see the same command). So the
-exponent buys description at a price in sample, and 2.0 is where the
-description stops improving.
-
-**1.0 is the other defensible answer**, and what it costs is worth knowing
-before you take it: ten points less of the gap for ten points more of sample.
-It also has an interpretation this doesn't -- at 1.0 the weight *is* the
-variance of the game's outcome at that snap, and at 2.0 it is that squared,
-which is a shape rather than a quantity. That reading is what the default used
-to be chosen on. It lost to the measurement.
+The two answers are not in tension about the football; they are about
+different jobs. A single game reads best with garbage time faded hard. A
+season adds those snaps back up into signal, and fading them costs more
+sample than it removes noise.
 """
 
 
