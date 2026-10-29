@@ -251,7 +251,7 @@ dependencies = [
 [[package]]
 name = "endgame-aws"
 version = "0.1.0"
-source = { git = "https://github.com/NathanDeMaria/EndGame.git?subdirectory=py-endgame-aws&rev=426cce938d5aa87902d88db3153becd66c97613e#426cce938d5aa87902d88db3153becd66c97613e" }
+source = { git = "https://github.com/NathanDeMaria/EndGame.git?subdirectory=py-endgame-aws&rev=b336c0490ca34b49b355bbce372a0d3998c4fbf2#b336c0490ca34b49b355bbce372a0d3998c4fbf2" }
 dependencies = [
     { name = "aiobotocore" },
     { name = "dataclasses-json" },
@@ -400,7 +400,7 @@ dev = [
     { name = "ty", specifier = ">=0.0.94" },
 ]
 train = [
-    { name = "endgame-aws", git = "https://github.com/NathanDeMaria/EndGame.git?subdirectory=py-endgame-aws&rev=426cce938d5aa87902d88db3153becd66c97613e" },
+    { name = "endgame-aws", git = "https://github.com/NathanDeMaria/EndGame.git?subdirectory=py-endgame-aws&rev=b336c0490ca34b49b355bbce372a0d3998c4fbf2" },
     { name = "fire", specifier = ">=0.7.1" },
     { name = "lucky-ones", extras = ["data", "fit"] },
 ]
