@@ -75,7 +75,7 @@ train = [
     # Where the plays live. Pinned to a rev like cassandra pins it --
     # unpinned, the stored play schema can move under a retrain with nothing
     # in the diff saying so.
-    "endgame-aws @ git+https://github.com/NathanDeMaria/EndGame.git@426cce938d5aa87902d88db3153becd66c97613e#subdirectory=py-endgame-aws",
+    "endgame-aws @ git+https://github.com/NathanDeMaria/EndGame.git@b336c0490ca34b49b355bbce372a0d3998c4fbf2#subdirectory=py-endgame-aws",
 ]
 dev = [
     "pytest>=9.0.2",
