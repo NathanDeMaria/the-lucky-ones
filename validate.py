@@ -45,8 +45,8 @@ import asyncio
 import json
 import logging
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import fire
 import numpy as np

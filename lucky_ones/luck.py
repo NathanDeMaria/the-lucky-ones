@@ -58,8 +58,9 @@ Three things this deliberately is not:
 """
 
 import re
+from collections.abc import Iterable, Mapping, Sequence
 from enum import StrEnum
-from typing import Iterable, Mapping, NamedTuple, Sequence
+from typing import NamedTuple
 
 import numpy as np
 

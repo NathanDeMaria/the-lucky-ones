@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import pytest
@@ -31,7 +31,7 @@ def _release(**overrides) -> WinProbabilityRelease:
             league="nfl", seasons=[2024, 2025], weeks=[1, 2], n_games=400, n_snaps=60000
         ),
         metrics=Metrics(brier_score=0.12, log_loss=0.38, n_games=100, n_snaps=15000),
-        created_at=datetime(2026, 8, 31, tzinfo=timezone.utc),
+        created_at=datetime(2026, 8, 31, tzinfo=UTC),
         created_by="tests",
         **overrides,
     )
@@ -124,7 +124,7 @@ def _ep_release(**overrides) -> ExpectedPointsRelease:
         metrics=ExpectedPointsMetrics(
             log_loss=1.31, mean_absolute_error=3.7, n_games=100, n_snaps=15000
         ),
-        created_at=datetime(2026, 8, 31, tzinfo=timezone.utc),
+        created_at=datetime(2026, 8, 31, tzinfo=UTC),
         created_by="tests",
         **overrides,
     )

@@ -19,11 +19,12 @@ Three sources live here:
   wire the application up and pass it in.
 """
 
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from functools import reduce
 from operator import and_
 from pathlib import Path
-from typing import Any, Iterable, NamedTuple, Protocol, Sequence
+from typing import Any, NamedTuple, Protocol
 
 try:
     import pyarrow as pa

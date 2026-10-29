@@ -16,8 +16,8 @@ the one transform from those to pixels, so nothing that draws has to know
 where the plot area is.
 """
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Iterable, Sequence
 
 # A palette that survives both themes and holds up in greyscale, which is
 # what a chart in a pull request diff gets read in.

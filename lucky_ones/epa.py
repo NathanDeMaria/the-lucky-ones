@@ -42,7 +42,8 @@ worth of snaps is a noisy estimate of anything -- see `EpaPerPlay` for how to
 add games up, which is not by averaging the numbers it returns.
 """
 
-from typing import Mapping, NamedTuple, Sequence, overload
+from collections.abc import Mapping, Sequence
+from typing import NamedTuple, overload
 
 import numpy as np
 

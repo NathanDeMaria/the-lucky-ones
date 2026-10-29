@@ -38,9 +38,10 @@ one football number that is about a play rather than about a game.
 """
 
 import json
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Mapping, NamedTuple, Protocol, Sequence
+from typing import Any, NamedTuple, Protocol
 
 import numpy as np
 
@@ -528,7 +529,7 @@ class MultinomialExpectedPoints:
         next_score: Sequence[ScoreKind],
         *,
         regularization: float = 1.0,
-    ) -> "MultinomialExpectedPoints":
+    ) -> MultinomialExpectedPoints:
         """
         Fit on snaps labelled with what scored next -- what
         `lucky_ones.training.build_expected_points_set` produces.
@@ -602,7 +603,7 @@ class MultinomialExpectedPoints:
         }
 
     @classmethod
-    def from_dict(cls, saved: Mapping[str, Any]) -> "MultinomialExpectedPoints":
+    def from_dict(cls, saved: Mapping[str, Any]) -> MultinomialExpectedPoints:
         """
         Rehydrate a saved fit, refusing one whose features aren't the ones
         this code builds.
@@ -630,7 +631,7 @@ class MultinomialExpectedPoints:
         Path(path).write_text(json.dumps(self.to_dict(), indent=2) + "\n")
 
     @classmethod
-    def load(cls, path: str | Path) -> "MultinomialExpectedPoints":
+    def load(cls, path: str | Path) -> MultinomialExpectedPoints:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
 

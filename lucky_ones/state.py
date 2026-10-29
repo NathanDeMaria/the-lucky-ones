@@ -20,8 +20,9 @@ available. `iter_states` therefore takes the score from the *previous* play
 are already pre-snap.
 """
 
+from collections.abc import Iterator
 from logging import getLogger
-from typing import Iterator, NamedTuple, TypeIs
+from typing import NamedTuple, TypeIs
 
 from .game import GamePlays
 from .plays import Play

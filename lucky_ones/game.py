@@ -15,8 +15,9 @@ module does the first and lets you do the second.
 """
 
 from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
 from logging import getLogger
-from typing import Iterable, Mapping, NamedTuple, Sequence
+from typing import NamedTuple
 
 from .plays import Play
 

@@ -35,9 +35,9 @@ import getpass
 import json
 import logging
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from collections.abc import Iterable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import fire
 import numpy as np
@@ -225,7 +225,7 @@ def train(
     model = LogisticWinProbability.fit(training.states, training.home_won)
     metrics = _score(model, holdout_games)
 
-    created_at = datetime.now(timezone.utc)
+    created_at = datetime.now(UTC)
     release = WinProbabilityRelease.from_model(
         model,
         run_id=created_at.strftime("%Y%m%d-%H%M%S"),
@@ -390,7 +390,7 @@ def train_ep(
     model = MultinomialExpectedPoints.fit(training.states, training.next_score)
     metrics = _score_ep(model, holdout_games)
 
-    created_at = datetime.now(timezone.utc)
+    created_at = datetime.now(UTC)
     release = ExpectedPointsRelease.from_model(
         model,
         run_id=created_at.strftime("%Y%m%d-%H%M%S"),

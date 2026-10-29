@@ -8,7 +8,8 @@ one is, so a test catches the int8/None problems a dict of python objects
 would hide.
 """
 
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import pyarrow as pa
 import pytest

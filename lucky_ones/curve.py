@@ -28,7 +28,8 @@ counts, on the grounds that a team up 28 in the fourth has stopped playing
 the same game. Nothing here knows about that; it's a consumer like any other.
 """
 
-from typing import NamedTuple, Sequence
+from collections.abc import Sequence
+from typing import NamedTuple
 
 from .game import GamePlays
 from .model import WinProbabilityModel
