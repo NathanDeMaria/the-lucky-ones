@@ -14,8 +14,9 @@ the two leagues agree on.
 """
 
 import random
+from collections.abc import Iterable
 from logging import getLogger
-from typing import Iterable, NamedTuple
+from typing import NamedTuple
 
 from .game import GamePlays
 from .points import ScoreKind, next_scores

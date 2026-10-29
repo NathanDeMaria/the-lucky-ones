@@ -112,7 +112,7 @@ class WinProbabilityRelease(BaseModel):
         metrics: Metrics,
         created_at: datetime,
         created_by: str,
-    ) -> "WinProbabilityRelease":
+    ) -> WinProbabilityRelease:
         return cls(
             run_id=run_id,
             league=league,
@@ -213,7 +213,7 @@ class ExpectedPointsRelease(BaseModel):
         metrics: ExpectedPointsMetrics,
         created_at: datetime,
         created_by: str,
-    ) -> "ExpectedPointsRelease":
+    ) -> ExpectedPointsRelease:
         return cls(
             run_id=run_id,
             league=league,

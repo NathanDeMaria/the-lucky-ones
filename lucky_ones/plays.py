@@ -29,8 +29,9 @@ nothing tying the two together -- see `lucky_ones.game` for what to do about
 that.
 """
 
+from collections.abc import Iterable, Sequence
 from datetime import datetime
-from typing import Iterable, Protocol, Sequence, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 @runtime_checkable

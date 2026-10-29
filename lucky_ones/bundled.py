@@ -36,11 +36,11 @@ worth avoiding; validating them is pydantic's, and a process that only ever
 touches one league shouldn't pay for the other.
 """
 
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, fields
 from functools import cached_property
 from importlib.resources import files
 from pathlib import Path
-from typing import Iterator, Mapping, Sequence
 
 import numpy as np
 

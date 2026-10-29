@@ -23,7 +23,7 @@ read, and each fit stores the list it was made against so the two can never
 be crossed.
 """
 
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 import numpy as np
 

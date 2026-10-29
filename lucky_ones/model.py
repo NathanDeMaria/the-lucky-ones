@@ -14,8 +14,9 @@ to beat before it's worth the complexity.
 """
 
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -83,7 +84,7 @@ class LogisticWinProbability:
         home_won: Sequence[bool],
         *,
         regularization: float = 1.0,
-    ) -> "LogisticWinProbability":
+    ) -> LogisticWinProbability:
         """
         Fit on states already labelled with their game's result -- what
         `lucky_ones.training.build_training_set` produces.
@@ -143,7 +144,7 @@ class LogisticWinProbability:
         }
 
     @classmethod
-    def from_dict(cls, saved: Mapping[str, Any]) -> "LogisticWinProbability":
+    def from_dict(cls, saved: Mapping[str, Any]) -> LogisticWinProbability:
         """
         Rehydrate a saved fit, refusing one whose features aren't the ones
         this code builds.
@@ -169,7 +170,7 @@ class LogisticWinProbability:
         Path(path).write_text(json.dumps(self.to_dict(), indent=2) + "\n")
 
     @classmethod
-    def load(cls, path: str | Path) -> "LogisticWinProbability":
+    def load(cls, path: str | Path) -> LogisticWinProbability:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
 
