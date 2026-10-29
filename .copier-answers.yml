@@ -1,0 +1,8 @@
+# Changes here will be overwritten by Copier
+_commit: v1.0.0
+_src_path: gh:NathanDeMaria/mirrorball
+aws: true
+description: In-game win probability for football, from play-by-play
+kind: library
+module_name: lucky_ones
+project_name: lucky-ones

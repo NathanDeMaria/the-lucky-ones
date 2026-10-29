@@ -1,3 +1,5 @@
+# Template-owned (mirrorball). One job named `ci`, because that is the check
+# the branch ruleset requires: a red `ci` blocks the merge.
 name: CI
 
 on:
@@ -20,18 +22,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Installs uv, restores its cache keyed on uv.lock, and -- with
-      # python-version set -- provisions the interpreter too, so there's no
-      # separate setup-python step to keep in sync with .python-version.
+      # Installs uv, restores its cache keyed on uv.lock, and provisions the
+      # interpreter from .python-version -- the same pins as the devcontainer.
       - uses: astral-sh/setup-uv@v7
         with:
-          version: "0.12.7"
-          python-version: "3.14"
+          version: "0.13.6"
+          python-version: "3.15"
           enable-cache: true
 
-      # `uv run` inside make would sync anyway; doing it here means a
-      # resolution or download failure reports as its own red step rather than
-      # as a confusing lint failure.
+      # --locked: a uv.lock that doesn't match pyproject.toml fails here rather
+      # than being quietly re-resolved. Its own step so a resolution failure
+      # isn't reported as a lint failure.
       - name: Install dependencies
         run: uv sync --locked
 
